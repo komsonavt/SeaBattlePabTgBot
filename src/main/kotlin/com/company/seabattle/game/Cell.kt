@@ -31,6 +31,10 @@ data class Coord(val row: Int, val col: Int) {
     companion object {
         val COL_LETTERS = listOf('А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З', 'И', 'К')
 
+        /** Создать координату или null, если координаты вне поля. */
+        fun safe(row: Int, col: Int): Coord? =
+            if (row in 0 until Board.SIZE && col in 0 until Board.SIZE) Coord(row, col) else null
+
         fun fromLabel(label: String): Coord? {
             if (label.length < 2) return null
             val letter = label[0].uppercaseChar()

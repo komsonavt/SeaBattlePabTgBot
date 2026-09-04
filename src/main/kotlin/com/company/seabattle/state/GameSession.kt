@@ -100,7 +100,10 @@ class GameSession(
         this.board2 = Board.fromState(board2State)
         if (vsComputer) {
             if (this.ai == null) this.ai = SeaBattleAI()
-            aiState?.let { this.ai!!.restoreState(it) }
+            val currentAi = this.ai
+            if (currentAi != null && aiState != null) {
+                currentAi.restoreState(aiState)
+            }
         }
         this.turnIsPlayer1 = turnIsPlayer1
         this.finished = finished

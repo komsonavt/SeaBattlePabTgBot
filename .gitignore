@@ -33,7 +33,11 @@ bin/
 
 ### Gradle ###
 .gradle/
-build/
+# Игнорируем всё в build/, КРОМЕ собранного fat-jar (он собирается локально, не на VPS)
+build/*
+!build/libs/
+build/libs/*
+!build/libs/*.jar
 
 ### Environment / secrets ###
 .env

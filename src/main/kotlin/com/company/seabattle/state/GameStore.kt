@@ -5,7 +5,6 @@ import com.company.seabattle.game.AiState
 import com.company.seabattle.game.BoardState
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import java.sql.PreparedStatement
 import java.sql.Types
 import java.util.UUID
 

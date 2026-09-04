@@ -85,33 +85,34 @@ class SeaBattleAI(private val rng: Random = Random.Default) : Serializable {
             val first = sorted.first()
             val last = sorted.last()
             val sameRow = first.row == last.row
+            // Используем Coord.safe(), т.к. координаты могут быть вне поля (край).
             val candidates = if (sameRow) {
-                listOf(
-                    Coord(first.row, first.col - 1),
-                    Coord(first.row, last.col + 1)
+                listOfNotNull(
+                    Coord.safe(first.row, first.col - 1),
+                    Coord.safe(first.row, last.col + 1)
                 )
             } else {
-                listOf(
-                    Coord(first.row - 1, first.col),
-                    Coord(last.row + 1, first.col)
+                listOfNotNull(
+                    Coord.safe(first.row - 1, first.col),
+                    Coord.safe(last.row + 1, first.col)
                 )
             }
             for (c in candidates) {
-                if (c.row in 0 until Board.SIZE && c.col in 0 until Board.SIZE && c !in shots) {
+                if (c !in shots) {
                     return c
                 }
             }
         }
         // Одно попадание — стреляем по четырём соседям
         val origin = pendingHits.first()
-        val neighbors = listOf(
-            Coord(origin.row - 1, origin.col),
-            Coord(origin.row + 1, origin.col),
-            Coord(origin.row, origin.col - 1),
-            Coord(origin.row, origin.col + 1)
+        val neighbors = listOfNotNull(
+            Coord.safe(origin.row - 1, origin.col),
+            Coord.safe(origin.row + 1, origin.col),
+            Coord.safe(origin.row, origin.col - 1),
+            Coord.safe(origin.row, origin.col + 1)
         )
         for (n in neighbors) {
-            if (n.row in 0 until Board.SIZE && n.col in 0 until Board.SIZE && n !in shots) {
+            if (n !in shots) {
                 return n
             }
         }

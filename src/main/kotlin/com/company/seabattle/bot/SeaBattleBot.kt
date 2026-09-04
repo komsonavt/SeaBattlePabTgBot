@@ -5,7 +5,6 @@ import com.company.seabattle.config.BotConfig
 import com.company.seabattle.game.Board
 import com.company.seabattle.game.BoardRenderer
 import com.company.seabattle.game.Coord
-import com.company.seabattle.game.Icons
 import com.company.seabattle.state.GameMode
 import com.company.seabattle.state.GameSession
 import com.company.seabattle.state.GameStore
@@ -13,9 +12,6 @@ import com.company.seabattle.state.TournamentPhase
 import org.telegram.telegrambots.client.okhttp.OkHttpTelegramClient
 import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateConsumer
 import org.telegram.telegrambots.meta.api.objects.Update
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardRow
 import org.telegram.telegrambots.meta.generics.TelegramClient
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -520,7 +516,7 @@ class SeaBattleBot(
         val isP1 = playerId == session.player1Id
         val ownBoard = if (isP1) session.board1 else session.board2
         val enemyBoard = if (isP1) session.board2 else session.board1
-        val ownTitle = if (session.vsComputer) "🛥 Ваше поле" else "🛥 Ваше поле"
+        val ownTitle = "🛥 Ваше поле"
         val enemyTitle = if (session.vsComputer) "🤖 Поле компьютера" else "🎯 Поле соперника"
 
         val ownText = BoardRenderer.renderOwnMarkdown(ownBoard, ownTitle)

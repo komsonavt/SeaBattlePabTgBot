@@ -3,5 +3,6 @@
 .idea
 .gradle
 build
+!build/libs
 *.md
 .env

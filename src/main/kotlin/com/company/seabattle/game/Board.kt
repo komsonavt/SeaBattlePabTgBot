@@ -26,7 +26,8 @@ class Board private constructor(
         for (r in 0 until SIZE) for (c in 0 until SIZE) grid[r][c] = Cell.WATER
         ships.clear()
         for (deckCount in FLEET_DESC) {
-            repeat(FLEET_COUNT[deckCount]!!) {
+            val count = FLEET_COUNT[deckCount] ?: 0
+            repeat(count) {
                 placeRandomShip(deckCount, rng)
             }
         }
