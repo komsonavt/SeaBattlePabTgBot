@@ -1,5 +1,6 @@
 # ===== Стадия 1: сборка fat-jar через Gradle =====
-FROM eclipse-temurin:21-jdk AS builder
+# Используем Alpine-образ — значительно меньше Debian-варианта
+FROM eclipse-temurin:21-jdk-alpine AS builder
 
 WORKDIR /build
 
@@ -16,8 +17,9 @@ COPY src/ ./src/
 # Собираем fat-jar (без тестов)
 RUN ./gradlew --no-daemon jar -x test --no-build-cache
 
-# ===== Стадия 2: runtime на лёгком JRE =====
-FROM eclipse-temurin:21-jre
+# ===== Стадия 2: runtime на лёгком JRE Alpine =====
+# Alpine-образ JRE ~120 МБ вместо ~270 МБ у Debian-варианта
+FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app
 
