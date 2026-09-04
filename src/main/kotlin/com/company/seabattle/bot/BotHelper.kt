@@ -29,7 +29,14 @@ object BotHelper {
         val msg = SendMessage(chatId.toString(), text)
         if (parseMode != null) msg.parseMode = parseMode
         if (replyMarkup != null) msg.replyMarkup = replyMarkup
-        return client.execute(msg)
+        val kbInfo = replyMarkup?.let { kb ->
+            val rows = kb.keyboard
+            "keyboard(rows=${rows.size}, buttonsPerRow=[${rows.joinToString(",") { it.size.toString() }}])"
+        } ?: "no-keyboard"
+        println("[API] sendText: chatId=$chatId, textLen=${text.length}, $kbInfo")
+        val result = client.execute(msg)
+        println("[API] sendText -> ok, messageId=${result.messageId}")
+        return result
     }
 
     /** Отправить сообщение с inline-клавиатурой. Возвращает id отправленного сообщения. */
@@ -57,9 +64,16 @@ object BotHelper {
         edit.messageId = messageId.toInt()
         if (parseMode != null) edit.parseMode = parseMode
         if (replyMarkup != null) edit.replyMarkup = replyMarkup
+        val kbInfo = replyMarkup?.let { kb ->
+            val rows = kb.keyboard
+            "keyboard(rows=${rows.size}, buttonsPerRow=[${rows.joinToString(",") { it.size.toString() }}])"
+        } ?: "no-keyboard"
+        println("[API] editText: chatId=$chatId, messageId=$messageId, textLen=${text.length}, $kbInfo")
         try {
             client.execute(edit)
+            println("[API] editText -> ok")
         } catch (e: Exception) {
+            println("[API] editText -> ERROR: ${e.message}")
             // игнорируем ошибки редактирования (сообщение не изменилось и т.п.)
         }
     }
@@ -75,9 +89,13 @@ object BotHelper {
         edit.chatId = chatId.toString()
         edit.messageId = messageId.toInt()
         edit.replyMarkup = keyboard
+        val rows = keyboard.keyboard
+        println("[API] editKeyboard: chatId=$chatId, messageId=$messageId, keyboard(rows=${rows.size}, buttonsPerRow=[${rows.joinToString(",") { it.size.toString() }}])")
         try {
             client.execute(edit)
+            println("[API] editKeyboard -> ok")
         } catch (e: Exception) {
+            println("[API] editKeyboard -> ERROR: ${e.message}")
             // игнорируем
         }
     }

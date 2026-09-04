@@ -339,6 +339,8 @@ class SeaBattleBot(
         val chatId = cq.message?.chatId ?: return
         val data = cq.data
 
+        println("[CALLBACK] userId=$userId, chatId=$chatId, data=$data")
+
         BotHelper.answerCallback(client, cq.id)
 
         // Доступ проверяем для всех callback'ов
@@ -378,15 +380,24 @@ class SeaBattleBot(
 
     /** Выстрел в режиме против компьютера. */
     private fun handleShoot(userId: Long, chatId: Long, coords: String) {
-        val session = store.getSessionByPlayer(userId) ?: return
+        println("[SHOOT] userId=$userId, coords=$coords (режим: против компьютера)")
+        val session = store.getSessionByPlayer(userId) ?: run {
+            println("[SHOOT] сессия не найдена для userId=$userId")
+            return
+        }
         if (session.mode != GameMode.VS_COMPUTER || session.finished) return
         if (!session.turnIsPlayer1) {
             BotHelper.sendText(client, chatId, "Сейчас не ваш ход.")
             return
         }
-        val coord = parseCoord(coords) ?: return
+        val coord = parseCoord(coords) ?: run {
+            println("[SHOOT] не удалось распарсить координаты: $coords")
+            return
+        }
+        println("[SHOOT] выстрел по координате: row=${coord.row}, col=${coord.col} (${Coord.COL_LETTERS[coord.col]}${coord.row + 1})")
         // Стреляем по полю компьютера (board2)
         val result = session.board2.fire(coord)
+        println("[SHOOT] результат: hit=${result.hit}, sunk=${result.sunk}, already=${result.already}")
         if (result.already) {
             BotHelper.sendText(client, chatId, "Вы уже стреляли в эту клетку.")
             return

@@ -55,8 +55,12 @@ object BoardRenderer {
     /**
      * Построить inline-клавиатуру поля соперника.
      *
-     * Каждая кнопка — клетка 10x10. Кнопки, по которым уже стреляли,
-     * остаются неактивными (callback "noop"). По остальным можно стрелять.
+     * Каждая кнопка — клетка 10x10 (без шапки и номеров строк, чтобы
+     * уложиться в лимит ширины inline-клавиатуры Telegram).
+     * Столбцы: А-К слева направо, строки: 1-10 сверху вниз.
+     *
+     * Кнопки, по которым уже стреляли, остаются неактивными (callback "noop").
+     * По остальным можно стрелять.
      *
      * @param enemyBoard поле соперника (с точки зрения стреляющего)
      * @param callbackPrefix префикс callback-данных, например "shoot:"
@@ -69,18 +73,8 @@ object BoardRenderer {
     ): InlineKeyboardMarkup {
         val rows = mutableListOf<InlineKeyboardRow>()
 
-        // Шапка с буквами колонок (неактивные кнопки)
-        val headerRow = InlineKeyboardRow()
-        headerRow.add(InlineKeyboardButton("⬇️").apply { callbackData = "noop" })
-        for (c in 0 until Board.SIZE) {
-            headerRow.add(InlineKeyboardButton(Coord.COL_LETTERS[c].toString()).apply { callbackData = "noop" })
-        }
-        rows.add(headerRow)
-
         for (r in 0 until Board.SIZE) {
             val row = InlineKeyboardRow()
-            // Номер строки слева
-            row.add(InlineKeyboardButton((r + 1).toString()).apply { callbackData = "noop" })
             for (c in 0 until Board.SIZE) {
                 val coord = Coord(r, c)
                 val cell = enemyBoard.cellAt(r, c)
@@ -92,6 +86,10 @@ object BoardRenderer {
             }
             rows.add(row)
         }
-        return InlineKeyboardMarkup(rows)
+        val markup = InlineKeyboardMarkup(rows)
+        // Лог отрисовки клавиатуры: сколько строк и кнопок в каждой
+        val buttonsPerRow = rows.joinToString(",") { it.size.toString() }
+        println("[RENDER] renderEnemyKeyboard: rows=${rows.size}, buttonsPerRow=[$buttonsPerRow], totalButtons=${rows.sumOf { it.size }}")
+        return markup
     }
 }
