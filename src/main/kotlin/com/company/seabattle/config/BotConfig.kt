@@ -31,10 +31,16 @@ data class BotConfig(
         fun fromEnv(): BotConfig {
             val token = env("BOT_TOKEN")
             val username = env("BOT_USERNAME")
-            val chatId = env("CORPORATE_CHAT_ID").toLong()
+            val chatId = env("CORPORATE_CHAT_ID").toLongOrNull()
+                ?: error(
+                    "Не задана или некорректна переменная окружения CORPORATE_CHAT_ID. " +
+                        "Ожидается числовой ID чата (например, -1001234567890)."
+                )
             val admins = envOrNull("ADMIN_IDS")
                 ?.split(",")
-                ?.map { it.trim().toLong() }
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?.map { it.toLongOrNull() ?: error("Некорректный ID администратора в ADMIN_IDS: '$it'") }
                 ?.toSet()
                 ?: emptySet()
             val groupSize = envOrNull("GROUP_SIZE")?.toIntOrNull() ?: 4
@@ -49,9 +55,21 @@ data class BotConfig(
             )
         }
 
-        private fun env(name: String): String =
-            System.getenv(name) ?: error("Не задана переменная окружения $name")
+        /**
+         * Возвращает значение переменной окружения.
+         * Пустая строка считается как «не задано» (Docker Compose передаёт пустую строку,
+         * если переменная не определена в .env).
+         */
+        private fun env(name: String): String {
+            val value = System.getenv(name)?.trim()
+            if (value.isNullOrEmpty()) {
+                error("Не задана переменная окружения $name")
+            }
+            return value
+        }
 
-        private fun envOrNull(name: String): String? = System.getenv(name)
+        /** Возвращает значение переменной окружения или null, если не задана/пустая. */
+        private fun envOrNull(name: String): String? =
+            System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
     }
 }
