@@ -18,6 +18,13 @@ dependencies {
     implementation("com.fasterxml.jackson.core:jackson-databind:2.18.1")
     implementation("org.postgresql:postgresql:42.7.4")
     implementation("com.zaxxer:HikariCP:6.2.1")
+
+    testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.3")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 kotlin {

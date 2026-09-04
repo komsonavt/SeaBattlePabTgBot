@@ -33,26 +33,32 @@ class Board private constructor(
     }
 
     private fun placeRandomShip(deckCount: Int, rng: Random) {
-        var attempts = 0
-        while (attempts < 500) {
-            attempts++
-            val horizontal = rng.nextBoolean()
+        // Собираем ВСЕ валидные позиции для корабля и выбираем случайную.
+        // Это гарантирует успех, если хотя бы одна валидная позиция существует
+        // (для стандартного флота на 10x10 она всегда есть).
+        val candidates = mutableListOf<List<Coord>>()
+        for (horizontal in listOf(true, false)) {
             val maxRow = if (horizontal) SIZE else SIZE - deckCount + 1
             val maxCol = if (horizontal) SIZE - deckCount + 1 else SIZE
-            val row = rng.nextInt(maxRow)
-            val col = rng.nextInt(maxCol)
-            val cells = if (horizontal) {
-                (0 until deckCount).map { Coord(row, col + it) }
-            } else {
-                (0 until deckCount).map { Coord(row + it, col) }
-            }
-            if (canPlace(cells)) {
-                cells.forEach { grid[it.row][it.col] = Cell.SHIP }
-                ships.add(Ship(cells))
-                return
+            for (row in 0 until maxRow) {
+                for (col in 0 until maxCol) {
+                    val cells = if (horizontal) {
+                        (0 until deckCount).map { Coord(row, col + it) }
+                    } else {
+                        (0 until deckCount).map { Coord(row + it, col) }
+                    }
+                    if (canPlace(cells)) {
+                        candidates.add(cells)
+                    }
+                }
             }
         }
-        error("Не удалось разместить корабль длиной $deckCount за $attempts попыток")
+        if (candidates.isEmpty()) {
+            error("Нет валидной позиции для корабля длиной $deckCount")
+        }
+        val cells = candidates[rng.nextInt(candidates.size)]
+        cells.forEach { grid[it.row][it.col] = Cell.SHIP }
+        ships.add(Ship(cells))
     }
 
     private fun canPlace(cells: List<Coord>): Boolean {
@@ -144,7 +150,7 @@ class Board private constructor(
         const val SIZE = 10
 
         /** Описание флота: длина корабля -> количество. */
-        val FLEET_DESC = listOf(4, 3, 3, 2, 2, 2, 1, 1, 1, 1)
+        val FLEET_DESC = listOf(4, 3, 2, 1)
         val FLEET_COUNT = mapOf(4 to 1, 3 to 2, 2 to 3, 1 to 4)
 
         /** Создать пустое поле. */
