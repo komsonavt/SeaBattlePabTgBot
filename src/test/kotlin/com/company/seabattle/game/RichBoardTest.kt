@@ -33,14 +33,15 @@ class RichBoardTest {
         assertEquals(51, Regex("type=\"disabled\"").findAll(html).count())
     }
 
-    @Test fun `enemy cell labels keep a coordinate and icon after a shot`() {
+    @Test fun `enemy board uses emoji only and has a fixed width anchor`() {
         val renderer = RichBoardRenderer(BoardTheme.load(null))
         val board = Board.random()
         val target = board.ships().first().cells.first()
         board.fire(target)
         val html = renderer.enemy(board, id, 1, target.col / 5, true, "Твой ход")
-        assertTrue("${target.label()} 💣" in html || "${target.label()} ☠️" in html)
-        assertTrue("А1 🌊" in html || "А1 💥" in html || "А1 💣" in html || "А1 ☠️" in html)
+        assertTrue("⚓ Поле соперника · 10 × 10 · держим курс на победу" in html)
+        assertFalse("${target.label()} " in html)
+        assertTrue(">💣</tg-button>" in html || ">☠️</tg-button>" in html)
     }
 
     @Test fun `only computer game offers a menu exit while active`() {

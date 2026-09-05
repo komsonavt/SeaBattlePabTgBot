@@ -52,16 +52,16 @@ class RichBoardRenderer(private val theme: BoardTheme = BoardTheme.load()) {
     fun enemy(board: Board, gameId: String, revision: Long, half: Int, canFire: Boolean, notice: String,
         finished: Boolean = false, vsComputer: Boolean = false, confirmSurrender: Boolean = false): String = buildString {
         require(half in 0..1)
-        append("<p>${escapeHtml(notice)}</p><h3>Поле соперника</h3>")
+        append("<p>${escapeHtml(notice)}</p><h3>⚓ Поле соперника · 10 × 10 · держим курс на победу</h3>")
         for (r in 0 until Board.SIZE) {
             append("<tg-button-row>")
             for (c in half * 5 until half * 5 + 5) {
                 val cell = board.cellAt(r, c)
                 val unknown = cell == Cell.WATER || cell == Cell.SHIP
-                // Координата и пиктограмма есть у каждой кнопки. Telegram тогда не
-                // меняет ширину строки, когда координата после выстрела заменяется
-                // значком промаха или попадания.
-                val label = "${Coord(r, c).label()} ${theme.cell(if (unknown) Cell.WATER else cell, enemy = true)}"
+                // У всех клеток — только эмодзи. Постоянный заголовок выше служит
+                // якорем ширины сообщения, поэтому попадания и промахи не сжимают
+                // карточку на телефоне.
+                val label = theme.cell(if (unknown) Cell.WATER else cell, enemy = true)
                 if (unknown && canFire) {
                     val data = GameAction(gameId, revision, "fire", r * 10 + c).encode()
                     append("<tg-button type=\"callback_data\" data=\"$data\">$label</tg-button>")
