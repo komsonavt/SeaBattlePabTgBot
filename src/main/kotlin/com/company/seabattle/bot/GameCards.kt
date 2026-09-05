@@ -61,7 +61,7 @@ class GameCards(private val store: GameStore, private val rich: RichMessageClien
                 }
             }
             val skips=if(s.vsComputer) "" else "\nПропуски: ты ${if(p1)s.rules.skips1 else s.rules.skips2}/3 · соперник ${if(p1)s.rules.skips2 else s.rules.skips1}/3"
-            return "Соперник: ${opponent.take(80)}\n$status\nТы потопил: ${10-enemy.aliveShipsCount()}/10 · Соперник: ${10-own.aliveShipsCount()}/10$skips\n" +
+            return "$status\nСоперник: ${opponent.take(80)}\nТы потопил: ${10-enemy.aliveShipsCount()}/10 · Соперник: ${10-own.aliveShipsCount()}/10$skips\n" +
                 (if(p1)s.rules.notice1 else s.rules.notice2) + if(s.uiFor(pid).confirmingSurrender && !s.finished) "\nСдаться? Сопернику будет засчитана победа." else ""
         }
     }

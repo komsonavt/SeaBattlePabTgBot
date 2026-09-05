@@ -52,7 +52,7 @@ class RichBoardRenderer(private val theme: BoardTheme = BoardTheme.load()) {
     fun enemy(board: Board, gameId: String, revision: Long, half: Int, canFire: Boolean, notice: String,
         finished: Boolean = false, vsComputer: Boolean = false, confirmSurrender: Boolean = false): String = buildString {
         require(half in 0..1)
-        append("<h3>Поле соперника</h3><p>${escapeHtml(notice)}</p>")
+        append("<p>${escapeHtml(notice)}</p><h3>Поле соперника</h3>")
         for (r in 0 until Board.SIZE) {
             append("<tg-button-row>")
             for (c in half * 5 until half * 5 + 5) {
