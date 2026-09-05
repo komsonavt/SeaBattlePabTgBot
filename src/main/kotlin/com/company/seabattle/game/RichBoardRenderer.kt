@@ -86,7 +86,7 @@ class RichBoardRenderer(private val theme: BoardTheme = BoardTheme.load()) {
             append(button("Таблица лидеров","leaderboard"))
             if(vsComputer) append(button("Ещё раз","mode_cpu"))
         }
-        append(button("В меню","menu"))
+        if (vsComputer || finished) append(button("В меню","menu"))
         append("</tg-button-row>")
     }
     private fun button(text: String, data: String) = "<tg-button type=\"callback_data\" data=\"$data\">$text</tg-button>"

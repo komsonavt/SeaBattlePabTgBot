@@ -50,9 +50,9 @@ class GameStore(private val db: Database) {
                         session.recoverDeadline(System.currentTimeMillis())
                         if (!session.finished) saveSession(session, conn)
                         sessionsCache[id] = session
-                        if (!session.finished) {
-                            check(playerToSession.putIfAbsent(p1, id) == null) { "Multiple active games for player $p1" }
-                            if (p2 != 0L) check(playerToSession.putIfAbsent(p2, id) == null) { "Multiple active games for player $p2" }
+                        if (!session.finished && !session.vsComputer) {
+                            check(playerToSession.putIfAbsent(p1, id) == null) { "Multiple active PvP games for player $p1" }
+                            if (p2 != 0L) check(playerToSession.putIfAbsent(p2, id) == null) { "Multiple active PvP games for player $p2" }
                         }
                     }
                 }
@@ -66,7 +66,7 @@ class GameStore(private val db: Database) {
     // ---- Сессии ----
 
     @Synchronized fun createVsComputerSession(playerId: Long): GameSession {
-        require(getSessionByPlayer(playerId) == null) { "Finish the active game first" }
+        require(getComputerSession(playerId) == null && getColleagueSession(playerId) == null) { "Finish the active game first" }
         val session = GameSession(
             id = newId(),
             player1Id = playerId,
@@ -76,7 +76,6 @@ class GameStore(private val db: Database) {
         )
         saveSession(session)
         sessionsCache[session.id] = session
-        playerToSession[playerId] = session.id
         return session
     }
 
@@ -85,7 +84,7 @@ class GameStore(private val db: Database) {
      * Возвращает inviteId, который кодируется в deep-link.
      */
     @Synchronized fun createInvite(creatorId: Long): String {
-        require(getSessionByPlayer(creatorId) == null) { "Finish the active game first" }
+        require(getColleagueSession(creatorId) == null) { "Finish the active PvP game first" }
         cancelInvite(creatorId)
         val inviteId = newId()
         db.connection().use { conn ->
@@ -119,7 +118,7 @@ class GameStore(private val db: Database) {
      */
     @Synchronized
     fun acceptInvite(inviteId: String, accepterId: Long): GameSession? {
-        if (getSessionByPlayer(accepterId) != null) return null
+        if (getColleagueSession(accepterId) != null) return null
         val key = inviteId.substringAfter('_', inviteId)
         val claimedCreator = if ('_' in inviteId) inviteId.substringBefore('_').toLongOrNull() ?: return null else null
         return db.connection().use { conn ->
@@ -130,7 +129,7 @@ class GameStore(private val db: Database) {
                     ps.executeQuery().use { rs -> if (rs.next()) rs.getLong(1) to rs.getString(2) else null }
                 }
                 val creator = invite?.first
-                if (creator == null || creator == accepterId || claimedCreator != null && creator != claimedCreator || getSessionByPlayer(creator) != null) {
+                if (creator == null || creator == accepterId || claimedCreator != null && creator != claimedCreator || getColleagueSession(creator) != null) {
                     conn.rollback()
                     return null
                 }
@@ -159,8 +158,8 @@ class GameStore(private val db: Database) {
         player2Id: Long,
         tournamentMatchId: String
     ): GameSession {
-        require(getSessionByPlayer(player1Id) == null)
-        require(getSessionByPlayer(player2Id) == null)
+        require(getColleagueSession(player1Id) == null)
+        require(getColleagueSession(player2Id) == null)
         val session = GameSession(
             id = newId(),
             player1Id = player1Id,
@@ -179,8 +178,18 @@ class GameStore(private val db: Database) {
 
 
     fun getSessionByPlayer(playerId: Long): GameSession? {
-        val sid = playerToSession[playerId] ?: return null
-        return sessionsCache[sid]
+        return getColleagueSession(playerId) ?: getComputerSession(playerId)
+    }
+
+    /** A player may keep one paused computer game while playing one PvP game. */
+    fun getComputerSession(playerId: Long): GameSession? = sessionsCache.values.firstOrNull {
+        !it.finished && it.vsComputer && it.player1Id == playerId
+    }
+
+    fun getColleagueSession(playerId: Long): GameSession? = playerToSession[playerId]?.let(sessionsCache::get)
+
+    fun getSession(gameId: String, playerId: Long): GameSession? = sessionsCache[gameId]?.takeIf {
+        !it.finished && (it.player1Id == playerId || it.player2Id == playerId)
     }
 
     /** Сохранить текущее состояние сессии в БД (вызывать после каждого изменения). */

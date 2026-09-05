@@ -84,7 +84,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         if (data == "access_check") { enter(user.id, store.community.pendingJoin(user.id)); return }
         if (!requireAccess(user.id)) return
         when {
-            data == "menu" -> menu(user.id)
+            data == "menu" -> if (store.getColleagueSession(user.id) != null) resume(user.id) else menu(user.id)
             data == "mode_cpu" -> startCpu(user.id)
             data == "mode_friend" -> invite(user.id)
             data == "leaderboard" -> leaderboard(user.id)
@@ -139,11 +139,11 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         BotHelper.sendText(client, userId, "*⚓ Морской бой NMH Team*\n\nВыбирай режим — поле и корабли бот расставит сам.", replyMarkup = BotHelper.keyboard(rows))
     }
     private fun startCpu(userId: Long) {
-        if (busy(userId)) return
+        if (store.getComputerSession(userId) != null || store.getColleagueSession(userId) != null) { busy(userId); return }
         cards.request(store.createVsComputerSession(userId), true)
     }
     private fun invite(userId: Long) {
-        if (busy(userId)) return
+        if (store.getColleagueSession(userId) != null) { busy(userId); return }
         val link = "https://t.me/${config.botUsername}?start=join_${store.createInvite(userId)}"
         BotHelper.sendText(client, userId, "*👥 Игра с коллегой*\n\nОтправь эту одноразовую ссылку:\n`$link`\n\nНа ход — 3 минуты. Три пропуска допустимы.", replyMarkup = BotHelper.keyboard(listOf(listOf("Отменить приглашение" to "cancel_invite"))))
     }
@@ -170,7 +170,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
     }
     private fun gameAction(userId: Long, messageId: Long, data: String) {
         val action = GameAction.parse(data) ?: return
-        val session = store.getSessionByPlayer(userId) ?: return
+        val session = store.getSession(action.gameId, userId) ?: return
         if (!session.accepts(action, userId, messageId)) { cards.request(session); return }
         when (action.type) {
             "half" -> store.update(session) { session.uiFor(userId).half = action.value; session.uiFor(userId).revision++ }

@@ -43,6 +43,14 @@ class RichBoardTest {
         assertTrue("А1 🌊" in html || "А1 💥" in html || "А1 💣" in html || "А1 ☠️" in html)
     }
 
+    @Test fun `only computer game offers a menu exit while active`() {
+        val renderer = RichBoardRenderer(BoardTheme.load(null))
+        val pvp = renderer.enemy(Board.random(), id, 1, 0, true, "Твой ход", vsComputer = false)
+        val cpu = renderer.enemy(Board.random(), id, 1, 0, true, "Твой ход", vsComputer = true)
+        assertFalse("data=\"menu\"" in pvp)
+        assertTrue("data=\"menu\"" in cpu)
+    }
+
     @Test fun `callback rejects old game old revision old message and another player`() {
         val s = session()
         s.ui.player1.enemyMessageId = 42
