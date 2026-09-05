@@ -58,7 +58,10 @@ class RichBoardRenderer(private val theme: BoardTheme = BoardTheme.load()) {
             for (c in half * 5 until half * 5 + 5) {
                 val cell = board.cellAt(r, c)
                 val unknown = cell == Cell.WATER || cell == Cell.SHIP
-                val label = if (unknown) Coord(r, c).label() else theme.cell(cell, enemy = true)
+                // Координата и пиктограмма есть у каждой кнопки. Telegram тогда не
+                // меняет ширину строки, когда координата после выстрела заменяется
+                // значком промаха или попадания.
+                val label = "${Coord(r, c).label()} ${theme.cell(if (unknown) Cell.WATER else cell, enemy = true)}"
                 if (unknown && canFire) {
                     val data = GameAction(gameId, revision, "fire", r * 10 + c).encode()
                     append("<tg-button type=\"callback_data\" data=\"$data\">$label</tg-button>")

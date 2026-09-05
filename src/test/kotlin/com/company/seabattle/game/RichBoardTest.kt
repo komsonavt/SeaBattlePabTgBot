@@ -33,6 +33,16 @@ class RichBoardTest {
         assertEquals(51, Regex("type=\"disabled\"").findAll(html).count())
     }
 
+    @Test fun `enemy cell labels keep a coordinate and icon after a shot`() {
+        val renderer = RichBoardRenderer(BoardTheme.load(null))
+        val board = Board.random()
+        val target = board.ships().first().cells.first()
+        board.fire(target)
+        val html = renderer.enemy(board, id, 1, target.col / 5, true, "Твой ход")
+        assertTrue("${target.label()} 💣" in html || "${target.label()} ☠️" in html)
+        assertTrue("А1 🌊" in html || "А1 💥" in html || "А1 💣" in html || "А1 ☠️" in html)
+    }
+
     @Test fun `callback rejects old game old revision old message and another player`() {
         val s = session()
         s.ui.player1.enemyMessageId = 42
