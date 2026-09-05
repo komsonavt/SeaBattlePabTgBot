@@ -44,7 +44,12 @@ data class BotConfig(
         private val fileConfig: Properties by lazy {
             Properties().apply {
                 val path = Path.of(System.getenv("BOT_CONFIG_FILE") ?: "bot.properties")
-                if(Files.exists(path)) Files.newBufferedReader(path, Charsets.UTF_8).use { load(it) }
+                if (Files.exists(path)) {
+                    require(Files.isRegularFile(path)) {
+                        "BOT_CONFIG_FILE должен указывать на файл настроек, а не каталог: $path"
+                    }
+                    Files.newBufferedReader(path, Charsets.UTF_8).use { load(it) }
+                }
             }
         }
         fun fromEnv(): BotConfig {
