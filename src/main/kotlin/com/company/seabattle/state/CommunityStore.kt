@@ -2,6 +2,10 @@ package com.company.seabattle.state
 
 import com.company.seabattle.db.Database
 import com.company.seabattle.game.escapeHtml
+import java.util.UUID
+
+enum class AccessStatus { DRAFT, PENDING, APPROVED, DECLINED }
+data class AccessRequest(val id: String, val userId: Long, val name: String?, val activity: String?, val status: AccessStatus, val payload: String?)
 
 data class PlayerProfile(val id: Long, val firstName: String, val lastName: String? = null, val username: String? = null) {
     val displayName: String get() = listOfNotNull(firstName, lastName).filter { it.isNotBlank() }.joinToString(" ")
@@ -10,6 +14,24 @@ data class PlayerProfile(val id: Long, val firstName: String, val lastName: Stri
 data class RankingEntry(val place: Long, val profile: PlayerProfile, val games: Long, val wins: Long)
 
 class CommunityStore(private val db: Database) {
+    fun isApproved(userId: Long): Boolean = db.connection().use { conn -> conn.prepareStatement("SELECT 1 FROM access_requests WHERE user_id=? AND status='APPROVED'").use { ps -> ps.setLong(1,userId); ps.executeQuery().use { it.next() } } }
+    fun request(userId: Long, payload: String?): AccessRequest {
+        val existing = accessRequest(userId)
+        if (existing != null && existing.status in setOf(AccessStatus.DRAFT, AccessStatus.PENDING)) return existing
+        val id = UUID.randomUUID().toString().replace("-", "")
+        db.connection().use { conn -> conn.prepareStatement("INSERT INTO access_requests(id,user_id,status,payload) VALUES (?,?,'DRAFT',?)").use { ps -> ps.setString(1,id);ps.setLong(2,userId);ps.setString(3,payload);ps.executeUpdate() } }
+        return AccessRequest(id,userId,null,null,AccessStatus.DRAFT,payload)
+    }
+    fun accessRequest(userId: Long): AccessRequest? = db.connection().use { conn -> conn.prepareStatement("SELECT id,user_id,name,activity,status,payload FROM access_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 1").use { ps -> ps.setLong(1,userId);ps.executeQuery().use { rs -> if(rs.next()) AccessRequest(rs.getString(1),rs.getLong(2),rs.getString(3),rs.getString(4),AccessStatus.valueOf(rs.getString(5)),rs.getString(6)) else null } } }
+    fun setRequestName(userId: Long, name: String) = db.connection().use { conn -> conn.prepareStatement("UPDATE access_requests SET name=? WHERE user_id=? AND status='DRAFT'").use { ps -> ps.setString(1,name);ps.setLong(2,userId);ps.executeUpdate() } }
+    fun submitRequest(userId: Long, activity: String): AccessRequest? {
+        db.connection().use { conn -> conn.prepareStatement("UPDATE access_requests SET activity=?,status='PENDING' WHERE user_id=? AND status='DRAFT'").use { ps -> ps.setString(1,activity);ps.setLong(2,userId);ps.executeUpdate() } }
+        return accessRequest(userId)
+    }
+    fun decideRequest(id: String, approved: Boolean, moderatorId: Long): AccessRequest? = db.connection().use { conn ->
+        conn.prepareStatement("UPDATE access_requests SET status=?,moderator_id=?,decided_at=NOW() WHERE id=? AND status='PENDING' RETURNING id,user_id,name,activity,status,payload").use { ps -> ps.setString(1,if(approved) "APPROVED" else "DECLINED");ps.setLong(2,moderatorId);ps.setString(3,id);ps.executeQuery().use { rs -> if(rs.next()) AccessRequest(rs.getString(1),rs.getLong(2),rs.getString(3),rs.getString(4),AccessStatus.valueOf(rs.getString(5)),rs.getString(6)) else null } }
+    }
+    fun approvedUsers(): List<Long> = db.connection().use { conn -> conn.createStatement().use { st -> st.executeQuery("SELECT DISTINCT user_id FROM access_requests WHERE status='APPROVED'").use { rs -> buildList { while(rs.next()) add(rs.getLong(1)) } } } }
     fun saveProfile(p: PlayerProfile) {
         db.connection().use { conn ->
             conn.prepareStatement("""INSERT INTO user_profiles(user_id, first_name, last_name, username) VALUES (?,?,?,?)

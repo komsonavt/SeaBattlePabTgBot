@@ -22,7 +22,10 @@ import java.util.Properties
 data class BotConfig(
     val botToken: String,
     val botUsername: String,
-    val corporateChatId: Long,
+    val moderationChatId: Long,
+    val moderationTopicId: Int?,
+    val exportsTopicId: Int?,
+    val broadcastsTopicId: Int?,
     val adminIds: Set<Long>,
     val groupSize: Int,
     val playersPerGroupAdvance: Int,
@@ -30,7 +33,6 @@ data class BotConfig(
     val dbUser: String,
     val dbPassword: String,
     val turnTimeoutSeconds: Long,
-    val corporateChatUrl: String = "",
     val tournamentDate: String = "20 сентября",
     val tournamentPrizes: String = "Победителя и призёров ждут призы.",
     val tournamentBracketEnabled: Boolean = false
@@ -55,11 +57,12 @@ data class BotConfig(
         fun fromEnv(): BotConfig {
             val token = env("BOT_TOKEN")
             val username = env("BOT_USERNAME")
-            val chatId = (envOrNull("ACCESS_CHANNEL_ID") ?: env("CORPORATE_CHAT_ID")).toLongOrNull()
+            val moderationChatId = env("MODERATION_CHAT_ID").toLongOrNull()
                 ?: error(
-                    "Не задана или некорректна переменная окружения CORPORATE_CHAT_ID. " +
-                        "Ожидается числовой ID чата (например, -1001234567890)."
+                    "Не задана или некорректна переменная окружения MODERATION_CHAT_ID. " +
+                        "Ожидается числовой ID форума (например, -1001234567890)."
                 )
+            fun topic(name: String) = envOrNull(name)?.toIntOrNull()
             val admins = envOrNull("ADMIN_IDS")
                 ?.split(",")
                 ?.map { it.trim() }
@@ -74,9 +77,8 @@ data class BotConfig(
             val dbPassword = envOrNull("DB_PASSWORD") ?: "seabattle"
             val turnTimeout = 180L
             return BotConfig(
-                token, username, chatId, admins, groupSize, advance,
+                token, username, moderationChatId, topic("MODERATION_TOPIC_ID"), topic("EXPORTS_TOPIC_ID"), topic("BROADCASTS_TOPIC_ID"), admins, groupSize, advance,
                 dbUrl, dbUser, dbPassword, turnTimeout,
-                envOrNull("CORPORATE_CHAT_URL") ?: "",
                 envOrNull("TOURNAMENT_DATE") ?: "20 сентября",
                 envOrNull("TOURNAMENT_PRIZES") ?: "Победителя и призёров ждут призы.",
                 envOrNull("TOURNAMENT_BRACKET_ENABLED")?.toBooleanStrictOrNull() ?: false

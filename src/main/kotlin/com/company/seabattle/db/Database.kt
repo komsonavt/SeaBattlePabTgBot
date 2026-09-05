@@ -93,6 +93,16 @@ class Database(
                 user_id BIGINT PRIMARY KEY, first_name TEXT NOT NULL, last_name TEXT,
                 username TEXT, registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
+            CREATE TABLE IF NOT EXISTS access_requests (
+                id VARCHAR(32) PRIMARY KEY, user_id BIGINT NOT NULL, name TEXT,
+                activity TEXT, status VARCHAR(16) NOT NULL, payload VARCHAR(64),
+                moderator_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), decided_at TIMESTAMPTZ
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_access_request_open ON access_requests(user_id) WHERE status='DRAFT' OR status='PENDING';
+            CREATE TABLE IF NOT EXISTS broadcast_drafts (
+                id VARCHAR(32) PRIMARY KEY, author_id BIGINT NOT NULL, body TEXT NOT NULL,
+                status VARCHAR(16) NOT NULL DEFAULT 'DRAFT', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
         """.trimIndent()
         private val SCHEMA_SQL = """
             -- Игровые сессии (все режимы)

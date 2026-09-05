@@ -27,11 +27,13 @@ object BotHelper {
         chatId: Long,
         text: String,
         parseMode: String? = PARSE_MODE,
-        replyMarkup: InlineKeyboardMarkup? = null
+        replyMarkup: InlineKeyboardMarkup? = null,
+        threadId: Int? = null
     ): Message {
         val msg = SendMessage(chatId.toString(), text)
         if (parseMode != null) msg.parseMode = parseMode
         if (replyMarkup != null) msg.replyMarkup = replyMarkup
+        if (threadId != null) msg.messageThreadId = threadId
         val kbInfo = replyMarkup?.let { kb ->
             val rows = kb.keyboard
             "keyboard(rows=${rows.size}, buttonsPerRow=[${rows.joinToString(",") { it.size.toString() }}])"
@@ -53,10 +55,11 @@ object BotHelper {
         return sendText(client, chatId, text, parseMode, keyboard).messageId.toLong()
     }
 
-    fun sendCsv(client: TelegramClient, chatId: Long, filename: String, content: String, caption: String) {
+    fun sendCsv(client: TelegramClient, chatId: Long, filename: String, content: String, caption: String, threadId: Int? = null) {
         val file = InputFile(ByteArrayInputStream(content.toByteArray(Charsets.UTF_8)), filename)
         val request = SendDocument(chatId.toString(), file)
         request.caption = caption
+        if (threadId != null) request.messageThreadId = threadId
         client.execute(request)
     }
 

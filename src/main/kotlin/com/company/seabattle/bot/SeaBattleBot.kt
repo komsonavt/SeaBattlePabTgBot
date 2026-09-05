@@ -1,7 +1,5 @@
 package com.company.seabattle.bot
 
-import com.company.seabattle.access.AccessGuard
-import com.company.seabattle.access.AccessResult
 import com.company.seabattle.config.BotConfig
 import com.company.seabattle.game.Coord
 import com.company.seabattle.game.GameAction
@@ -15,9 +13,6 @@ import org.telegram.telegrambots.client.okhttp.OkHttpTelegramClient
 import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateConsumer
 import org.telegram.telegrambots.meta.api.objects.Update
 import org.telegram.telegrambots.meta.api.objects.User
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardRow
 import org.telegram.telegrambots.meta.generics.TelegramClient
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -27,7 +22,6 @@ import java.util.concurrent.TimeUnit
 class SeaBattleBot(private val config: BotConfig, private val store: GameStore) :
     LongPollingSingleThreadUpdateConsumer, AutoCloseable {
     val client: TelegramClient = OkHttpTelegramClient(config.botToken)
-    private val access = AccessGuard(client, config.corporateChatId, config.adminIds)
     private val cards = GameCards(store, RichMessageClient(config.botToken), RichBoardRenderer())
     private val rich = RichMessageClient(config.botToken)
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
@@ -51,6 +45,12 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
     private fun onMessage(update: Update) {
         val message = update.message
         val user = message.from
+        if (message.chatId == config.moderationChatId) {
+            if (user.id in config.adminIds && config.broadcastsTopicId != null && message.messageThreadId == config.broadcastsTopicId && !message.text.startsWith("/")) {
+                broadcast(user.id, message.text)
+            }
+            return
+        }
         if (message.chatId != user.id) return
         remember(user)
         val text = message.text.trim()
@@ -60,6 +60,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
             enter(user.id, payload)
             return
         }
+        if (handleAccessFlow(user.id, text)) return
         if (!requireAccess(user.id)) return
         when (text.lowercase()) {
             "/menu", "меню" -> menu(user.id)
@@ -78,10 +79,15 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val query = update.callbackQuery
         val message = query.message ?: return
         val user = query.from
+        val data = query.data ?: return
+        if (message.chatId == config.moderationChatId) {
+            BotHelper.answerCallback(client, query.id)
+            if (user.id in config.adminIds && data.startsWith("mod:")) moderate(user.id, data)
+            return
+        }
         if (message.chatId != user.id) return
         remember(user); BotHelper.answerCallback(client, query.id)
-        val data = query.data ?: return
-        if (data == "access_check") { enter(user.id, store.community.pendingJoin(user.id)); return }
+        if (data == "request_access") { beginAccessRequest(user.id); return }
         if (!requireAccess(user.id)) return
         when {
             data == "menu" -> if (store.getColleagueSession(user.id) != null) resume(user.id) else menu(user.id)
@@ -99,8 +105,8 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
     }
 
     private fun remember(user: User) = store.community.saveProfile(PlayerProfile(user.id, user.firstName, user.lastName, user.userName))
-    private fun enter(userId: Long, payload: String?) = when (val result = access.check(userId)) {
-        AccessResult.ALLOWED -> {
+    private fun enter(userId: Long, payload: String?) {
+        if (store.community.isApproved(userId) || userId in config.adminIds) {
             val join = payload ?: store.community.pendingJoin(userId)
             if (join != null) {
                 val session = store.acceptInvite(join.removePrefix("join_"), userId)
@@ -113,21 +119,53 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
                 BotHelper.sendText(client, userId, "⚓ Добро пожаловать в Морской бой NMH Team!\nЗдесь можно потренироваться, сыграть с коллегой и записаться на турнир.")
                 menu(userId)
             }
-        }
-        else -> accessDenied(userId, result)
+        } else accessDenied(userId)
     }
     private fun requireAccess(userId: Long): Boolean {
-        val result = access.check(userId)
-        if (result == AccessResult.ALLOWED) return true
-        accessDenied(userId, result); return false
+        if (store.community.isApproved(userId) || userId in config.adminIds) return true
+        accessDenied(userId); return false
     }
-    private fun accessDenied(userId: Long, result: AccessResult) {
-        val text = if (result == AccessResult.NOT_MEMBER) "🔒 Бот доступен участникам NMH Team. Подпишись на канал, затем нажми «Проверить подписку»."
-        else "⚠️ Не удалось проверить подписку. Проверь права администратора у бота в канале и попробуй снова."
-        val row = InlineKeyboardRow()
-        if (config.corporateChatUrl.isNotBlank()) row.add(InlineKeyboardButton("Открыть канал").apply { url = config.corporateChatUrl })
-        row.add(InlineKeyboardButton("Проверить подписку").apply { callbackData = "access_check" })
-        BotHelper.sendText(client, userId, text, replyMarkup = InlineKeyboardMarkup(listOf(row)))
+    private fun accessDenied(userId: Long) {
+        rich.sync(userId, 0, "<p>К сожалению, у вас нет доступа к игре.</p><p>Если хотите получить доступ, нажмите «В бой!»</p><tg-button-row><tg-button type=\"callback_data\" data=\"request_access\">В бой!</tg-button></tg-button-row>")
+    }
+    private fun beginAccessRequest(userId: Long) {
+        val request = store.community.request(userId, store.community.pendingJoin(userId))
+        when (request.status) {
+            com.company.seabattle.state.AccessStatus.DRAFT -> BotHelper.sendText(client, userId, "Как тебя зовут? Напиши имя и фамилию одним сообщением.")
+            com.company.seabattle.state.AccessStatus.PENDING -> BotHelper.sendText(client, userId, "Заявка уже отправлена модераторам. Ответ придёт сюда.")
+            else -> accessDenied(userId)
+        }
+    }
+    /** Returns true when a private text message was consumed by the access questionnaire. */
+    private fun handleAccessFlow(userId: Long, text: String): Boolean {
+        val request = store.community.accessRequest(userId) ?: return false
+        if (request.status != com.company.seabattle.state.AccessStatus.DRAFT) return false
+        if (request.name.isNullOrBlank()) {
+            if (text.length !in 2..120) { BotHelper.sendText(client,userId,"Напиши, пожалуйста, имя и фамилию (от 2 до 120 символов)."); return true }
+            store.community.setRequestName(userId,text)
+            BotHelper.sendText(client,userId,"Из какого ты актива? Например: «Дизайн», «Маркетинг», «Офис Москва».")
+            return true
+        }
+        if (text.length !in 2..120) { BotHelper.sendText(client,userId,"Напиши название актива (от 2 до 120 символов)."); return true }
+        val submitted = store.community.submitRequest(userId,text) ?: return true
+        val body = "Новая заявка на доступ\n\nИмя: ${submitted.name}\nАктив: ${submitted.activity}\nTelegram ID: ${submitted.userId}"
+        val keyboard = BotHelper.keyboard(listOf(listOf("✅ Одобрить" to "mod:approve:${submitted.id}", "⛔ Отклонить" to "mod:decline:${submitted.id}")))
+        BotHelper.sendText(client,config.moderationChatId,body,replyMarkup=keyboard,threadId=config.moderationTopicId)
+        BotHelper.sendText(client,userId,"Спасибо! Заявка отправлена модераторам. Ответ придёт сюда.")
+        return true
+    }
+    private fun moderate(moderatorId: Long, data: String) {
+        val parts=data.split(":")
+        if(parts.size!=3) return
+        val approved=parts[1]=="approve"
+        val request=store.community.decideRequest(parts[2],approved,moderatorId) ?: return
+        BotHelper.sendText(client,request.userId,if(approved) "✅ Доступ одобрен. Добро пожаловать в игру!" else "К сожалению, заявка на доступ отклонена. При необходимости обратитесь к модератору.")
+        if(approved) enter(request.userId,request.payload)
+    }
+    private fun broadcast(authorId: Long, text: String) {
+        val recipients=store.community.approvedUsers().filter { it !in config.adminIds }
+        recipients.forEach { id -> runCatching { BotHelper.sendText(client,id,text,parseMode=null) } }
+        BotHelper.sendText(client,config.moderationChatId,"Рассылка отправлена: ${recipients.size} получателей.",threadId=config.broadcastsTopicId)
     }
 
     private fun menu(userId: Long) {
@@ -155,7 +193,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val admin = if (userId in config.adminIds) "<tg-button type=\"callback_data\" data=\"download_registrations\">Заявки: ${store.community.registrationCount()}</tg-button>" else ""
         rich.sync(userId, 0, "<h3>🏆 Турнир NMH Team</h3><p>Предварительный старт — ${config.tournamentDate}. Дату подтвердим отдельно.</p><p>${config.tournamentPrizes}</p><p>${if (registered) "Ты уже в предварительном списке ✅" else "Оставь заявку — мы сохраним имя, username и Telegram ID."}</p><tg-button-row><tg-button type=\"callback_data\" data=\"$action\">$label</tg-button>$admin<tg-button type=\"callback_data\" data=\"menu\">В меню</tg-button></tg-button-row>")
     }
-    private fun registrationExport(userId: Long) = BotHelper.sendCsv(client, userId, "nmh-tournament-registrations.csv", store.community.registrationsCsv(), "Заявок: ${store.community.registrationCount()}")
+    private fun registrationExport(userId: Long) = BotHelper.sendCsv(client, config.moderationChatId, "nmh-tournament-registrations.csv", store.community.registrationsCsv(), "Заявок: ${store.community.registrationCount()}", config.exportsTopicId)
     private fun resume(userId: Long) { store.getSessionByPlayer(userId)?.let { cards.request(it, true) } ?: BotHelper.sendText(client, userId, "Активной игры нет.") }
     private fun busy(userId: Long): Boolean {
         if (store.getSessionByPlayer(userId) == null) return false
