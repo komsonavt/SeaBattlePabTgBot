@@ -33,16 +33,15 @@ fun main() {
         db.initSchema()
 
         val store = GameStore(db)
-        val bot = SeaBattleBot(config, store)
-
-        println("Запуск бота @${config.botUsername}...")
-        println("БД: ${config.dbUrl}")
-        println("Таймаут хода: ${config.turnTimeoutSeconds} сек")
-        TelegramBotsLongPollingApplication().use { app ->
-            app.registerBot(config.botToken, bot)
-            println("Бот запущен. Нажмите Ctrl+C для остановки.")
-            // Блокируем основной поток, чтобы бот продолжал работать
-            Thread.currentThread().join()
+        SeaBattleBot(config, store).use { bot ->
+            println("Запуск бота @${config.botUsername}...")
+            println("БД: ${config.dbUrl}")
+            println("Таймаут хода: ${config.turnTimeoutSeconds} сек")
+            TelegramBotsLongPollingApplication().use { app ->
+                app.registerBot(config.botToken, bot)
+                println("Бот запущен. Нажмите Ctrl+C для остановки.")
+                Thread.currentThread().join()
+            }
         }
     }
 }

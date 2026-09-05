@@ -1,0 +1,147 @@
+package com.company.seabattle.game
+
+import com.company.seabattle.state.*
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import kotlin.test.*
+
+class RichBoardTest {
+    private val id = "a".repeat(32)
+    private fun session(cpu: Boolean = false) = GameSession(id, 1, if (cpu) 0 else 2, cpu,
+        if (cpu) GameMode.VS_COMPUTER else GameMode.VS_COLLEAGUE)
+
+    @Test fun `two halves cover all 100 coordinates without revealing ships`() {
+        val renderer = RichBoardRenderer(BoardTheme.load(null))
+        val board = Board.random()
+        val callbacks = (0..1).flatMap { half ->
+            val html = renderer.enemy(board, id, 0, half, true, "<test>")
+            assertTrue("&lt;test&gt;" in html)
+            assertFalse("🚢" in html)
+            Regex("data=\"([^\"]+)\"").findAll(html).mapNotNull { GameAction.parse(it.groupValues[1]) }
+                .filter { it.type == "fire" }.map { it.value }.toList()
+        }
+        assertEquals((0..99).toList(), callbacks.sorted())
+    }
+
+    @Test fun `own card has 100 custom emoji and enemy rows have at most five cells`() {
+        val theme = BoardTheme(listOf("sea", "ship", "miss", "hit", "sunk").associateWith { BrandEmoji("123", "🌊") })
+        val renderer = RichBoardRenderer(theme)
+        assertEquals(100, Regex("<tg-emoji ").findAll(renderer.own(Board.random())).count())
+        val html = renderer.enemy(Board.random(), id, 1, 0, false, "Wait")
+        val rows = Regex("<tg-button-row>(.*?)</tg-button-row>").findAll(html).toList()
+        assertEquals(12, rows.size)
+        assertTrue(rows.all { Regex("<tg-button ").findAll(it.value).count() <= 5 })
+        assertEquals(51, Regex("type=\"disabled\"").findAll(html).count())
+    }
+
+    @Test fun `callback rejects old game old revision old message and another player`() {
+        val s = session()
+        s.ui.player1.enemyMessageId = 42
+        val action = GameAction(id, 0, "fire", 23)
+        assertTrue(s.accepts(action, 1, 42))
+        assertFalse(s.accepts(action.copy(gameId = "b".repeat(32)), 1, 42))
+        assertFalse(s.accepts(action.copy(revision = 1), 1, 42))
+        assertFalse(s.accepts(action, 1, 41))
+        assertFalse(s.accepts(action, 3, 42))
+        assertNull(GameAction.parse("game:$id:0:fire:100"))
+        assertNull(GameAction.parse("game:$id:-1:half:0"))
+        assertNull(GameAction.parse("game:$id:0:half:2"))
+        assertEquals(action, GameAction.parse(action.encode()))
+    }
+
+    @Test fun `duplicate shot and out of turn shot cannot change game`() {
+        val s = session()
+        val target = s.board2.ships().first().cells.first()
+        assertFalse(s.fire(2, target))
+        assertTrue(s.fire(1, target))
+        val revision = s.ui.player1.revision
+        assertFalse(s.fire(1, target))
+        assertEquals(revision, s.ui.player1.revision)
+        assertTrue(s.turnIsPlayer1)
+    }
+
+    @Test fun `restored deadline records a skipped turn and assigns fresh deadline`() {
+        val original = session()
+        original.turnDeadline = 1000
+        val restored = session()
+        restored.restoreState(original.exportBoard1(), original.exportBoard2(), null, true, false, 0, 0, 0, original.turnDeadline)
+        assertFalse(restored.expire(999))
+        assertTrue(restored.expire(1000))
+        assertEquals(0, restored.winnerId)
+        assertEquals(1, restored.rules.skips1)
+        assertEquals(181_000, restored.turnDeadline)
+        assertFalse(restored.expire(1001))
+    }
+
+    @Test fun `PVP gives three skips then technical loss on fourth`() {
+        val s = session()
+        repeat(6) { number ->
+            s.turnDeadline = 1000L + number
+            assertTrue(s.expire(2000L + number))
+            assertFalse(s.finished)
+        }
+        assertEquals(3, s.rules.skips1)
+        assertEquals(3, s.rules.skips2)
+        s.turnDeadline = 5000
+        assertTrue(s.expire(5000))
+        assertTrue(s.finished)
+        assertEquals("TIMEOUT", s.rules.finishReason)
+    }
+
+    @Test fun `computer game has no timeout and expired timer is ignored`() {
+        val s = session(cpu = true)
+        s.updateTurnDeadline(1)
+        assertEquals(0, s.turnDeadline)
+        assertFalse(s.expire(Long.MAX_VALUE))
+        assertFalse(s.finished)
+    }
+
+    @Test fun `restart processes at most one late turn then grants a fresh three minutes`() {
+        val s = session()
+        s.turnDeadline = 1
+        s.recoverDeadline(10_000)
+        assertEquals(1, s.rules.skips1)
+        assertEquals(190_000, s.turnDeadline)
+        s.recoverDeadline(10_001)
+        assertEquals(1, s.rules.skips1)
+    }
+
+    @Test fun `ui state survives serialization including independent halves`() {
+        val mapper = jacksonObjectMapper()
+        val ui = GameUi(PlayerUi(10, 11, 1, 7), PlayerUi(20, 21, 0, 9))
+        assertEquals(ui, mapper.readValue(mapper.writeValueAsString(ui), GameUi::class.java))
+        assertEquals(GameUi(), mapper.readValue("{}", GameUi::class.java))
+    }
+
+    @Test fun `changing half does not shoot or extend deadline`() {
+        val s = session()
+        s.turnDeadline = 1000
+        val board = s.exportBoard2().grid
+        s.uiFor(1).half = 1
+        s.uiFor(1).revision++
+        assertTrue(board.contentDeepEquals(s.exportBoard2().grid))
+        assertEquals(1000, s.turnDeadline)
+        assertTrue(s.turnIsPlayer1)
+        assertEquals(0, s.uiFor(2).half)
+    }
+
+    @Test fun `old SDK can deserialize a Rich Message callback`() {
+        val json = """{"update_id":1,"callback_query":{"id":"x","from":{"id":1,"is_bot":false,"first_name":"Test"},"chat_instance":"x","data":"game:$id:0:fire:23","message":{"message_id":42,"date":1,"chat":{"id":1,"type":"private"},"rich_message":{"blocks":[]}}}}"""
+        val update = jacksonObjectMapper().readValue(json, org.telegram.telegrambots.meta.api.objects.Update::class.java)
+        assertEquals(42, update.callbackQuery.message.messageId)
+        assertEquals(1, update.callbackQuery.from.id)
+    }
+
+    @Test fun `AI never wastes turns on known perimeter and finishes the fleet`() {
+        repeat(20) { seed ->
+            val board = Board.random(kotlin.random.Random(seed))
+            val ai = SeaBattleAI(kotlin.random.Random(seed))
+            var shots = 0
+            while (!board.allSunk()) {
+                val target = ai.chooseTarget(board)
+                assertTrue(board.cellAt(target.row, target.col) in listOf(Cell.WATER, Cell.SHIP))
+                ai.onShotResult(board.fire(target))
+                assertTrue(++shots <= 100)
+            }
+        }
+    }
+}

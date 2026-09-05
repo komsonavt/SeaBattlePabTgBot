@@ -1,0 +1,7 @@
+{
+  "sea": {"id": null, "alt": "🌊"},
+  "ship": {"id": null, "alt": "🚢"},
+  "miss": {"id": null, "alt": "💥"},
+  "hit": {"id": null, "alt": "💣"},
+  "sunk": {"id": null, "alt": "☠️"}
+}

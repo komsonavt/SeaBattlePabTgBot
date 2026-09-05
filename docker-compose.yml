@@ -23,20 +23,28 @@ services:
     build: .
     container_name: seabattle-bot
     restart: unless-stopped
+    volumes:
+      - ${BRAND_EMOJI_HOST_FILE:-./brand-emoji.example.json}:/app/brand-emoji.json:ro
+      - ${BOT_CONFIG_HOST_FILE:-./bot.properties}:/app/config/bot.properties:ro
     depends_on:
       db:
         condition: service_healthy
     environment:
-      BOT_TOKEN: ${BOT_TOKEN}
-      BOT_USERNAME: ${BOT_USERNAME}
-      CORPORATE_CHAT_ID: ${CORPORATE_CHAT_ID}
+      # Непустые значения .env имеют приоритет; обычно настройки бота хранятся
+      # в примонтированном bot.properties.
+      BOT_TOKEN: ${BOT_TOKEN:-}
+      BOT_USERNAME: ${BOT_USERNAME:-}
+      ACCESS_CHANNEL_ID: ${ACCESS_CHANNEL_ID:-}
+      CORPORATE_CHAT_URL: ${CORPORATE_CHAT_URL:-}
       ADMIN_IDS: ${ADMIN_IDS:-}
       GROUP_SIZE: ${GROUP_SIZE:-4}
       PLAYERS_PER_GROUP_ADVANCE: ${PLAYERS_PER_GROUP_ADVANCE:-2}
       DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-seabattle}
       DB_USER: ${POSTGRES_USER:-seabattle}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-seabattle}
-      TURN_TIMEOUT_SECONDS: ${TURN_TIMEOUT_SECONDS:-300}
+      TURN_TIMEOUT_SECONDS: ${TURN_TIMEOUT_SECONDS:-180}
+      BRAND_EMOJI_FILE: /app/brand-emoji.json
+      BOT_CONFIG_FILE: /app/config/bot.properties
 
 volumes:
   seabattle_pgdata:

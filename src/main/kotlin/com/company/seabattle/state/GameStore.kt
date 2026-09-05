@@ -21,6 +21,7 @@ import java.util.UUID
  * и синхронизируются с БД при каждом изменении.
  */
 class GameStore(private val db: Database) {
+    val community = CommunityStore(db)
 
     private val mapper: ObjectMapper = jacksonObjectMapper()
 
@@ -38,7 +39,7 @@ class GameStore(private val db: Database) {
     private fun loadActiveSessionsIntoCache() {
         db.connection().use { conn ->
             conn.createStatement().executeQuery(
-                "SELECT id, player1_id, player2_id FROM games WHERE NOT finished"
+                "SELECT id, player1_id, player2_id FROM games WHERE NOT finished OR ui_state::jsonb ->> 'needsSync' = 'true'"
             ).use { rs ->
                 while (rs.next()) {
                     val id = rs.getString("id")
@@ -46,9 +47,13 @@ class GameStore(private val db: Database) {
                     val p2 = rs.getLong("player2_id")
                     val session = loadSessionFromDb(conn, id, p1, p2)
                     if (session != null) {
+                        session.recoverDeadline(System.currentTimeMillis())
+                        if (!session.finished) saveSession(session, conn)
                         sessionsCache[id] = session
-                        playerToSession[p1] = id
-                        if (p2 != 0L) playerToSession[p2] = id
+                        if (!session.finished) {
+                            check(playerToSession.putIfAbsent(p1, id) == null) { "Multiple active games for player $p1" }
+                            if (p2 != 0L) check(playerToSession.putIfAbsent(p2, id) == null) { "Multiple active games for player $p2" }
+                        }
                     }
                 }
             }
@@ -60,8 +65,8 @@ class GameStore(private val db: Database) {
 
     // ---- Сессии ----
 
-    fun createVsComputerSession(playerId: Long): GameSession {
-        cancelActiveSession(playerId)
+    @Synchronized fun createVsComputerSession(playerId: Long): GameSession {
+        require(getSessionByPlayer(playerId) == null) { "Finish the active game first" }
         val session = GameSession(
             id = newId(),
             player1Id = playerId,
@@ -79,19 +84,21 @@ class GameStore(private val db: Database) {
      * Создать приглашение на игру с коллегой.
      * Возвращает inviteId, который кодируется в deep-link.
      */
-    fun createInvite(creatorId: Long): String {
-        cancelActiveSession(creatorId)
-        val inviteId = newId().take(8)
+    @Synchronized fun createInvite(creatorId: Long): String {
+        require(getSessionByPlayer(creatorId) == null) { "Finish the active game first" }
+        cancelInvite(creatorId)
+        val inviteId = newId()
         db.connection().use { conn ->
             conn.prepareStatement(
-                "INSERT INTO invites (invite_id, creator_id) VALUES (?, ?)"
+                "INSERT INTO invites (invite_id, creator_id, game_id) VALUES (?, ?, ?)"
             ).use { ps ->
                 ps.setString(1, inviteId)
                 ps.setLong(2, creatorId)
+                ps.setString(3, inviteId)
                 ps.executeUpdate()
             }
         }
-        return inviteId
+        return "${creatorId}_$inviteId"
     }
 
     /** Отменить приглашение (если есть). */
@@ -110,46 +117,50 @@ class GameStore(private val db: Database) {
      * Принять приглашение. Создаёт партию между создателем и принявшим.
      * Возвращает сессию или null, если приглашение не найдено / создатель занят.
      */
+    @Synchronized
     fun acceptInvite(inviteId: String, accepterId: Long): GameSession? {
-        var creatorId: Long? = null
-        db.connection().use { conn ->
-            // Атомарно удаляем приглашение и получаем creator_id
-            conn.prepareStatement(
-                "DELETE FROM invites WHERE invite_id = ? RETURNING creator_id"
-            ).use { ps ->
-                ps.setString(1, inviteId)
-                ps.executeQuery().use { rs ->
-                    if (rs.next()) {
-                        creatorId = rs.getLong("creator_id")
-                    }
+        if (getSessionByPlayer(accepterId) != null) return null
+        val key = inviteId.substringAfter('_', inviteId)
+        val claimedCreator = if ('_' in inviteId) inviteId.substringBefore('_').toLongOrNull() ?: return null else null
+        return db.connection().use { conn ->
+            conn.autoCommit = false
+            try {
+                val invite = conn.prepareStatement("SELECT creator_id, game_id FROM invites WHERE invite_id = ? FOR UPDATE").use { ps ->
+                    ps.setString(1, key)
+                    ps.executeQuery().use { rs -> if (rs.next()) rs.getLong(1) to rs.getString(2) else null }
                 }
+                val creator = invite?.first
+                if (creator == null || creator == accepterId || claimedCreator != null && creator != claimedCreator || getSessionByPlayer(creator) != null) {
+                    conn.rollback()
+                    return null
+                }
+                val session = GameSession(invite.second, creator, accepterId, false, GameMode.VS_COLLEAGUE)
+                session.updateTurnDeadline(System.currentTimeMillis() + GameSession.TURN_MILLIS)
+                saveSession(session, conn)
+                conn.prepareStatement("DELETE FROM invites WHERE creator_id IN (?, ?)").use { ps ->
+                    ps.setLong(1, creator)
+                    ps.setLong(2, accepterId)
+                    ps.executeUpdate()
+                }
+                conn.commit()
+                sessionsCache[session.id] = session
+                playerToSession[creator] = session.id
+                playerToSession[accepterId] = session.id
+                session
+            } catch (e: Exception) {
+                conn.rollback()
+                throw e
             }
         }
-        val creator = creatorId ?: return null
-        if (creator == accepterId) return null
-        cancelActiveSession(accepterId)
-        val session = GameSession(
-            id = newId(),
-            player1Id = creator,
-            player2Id = accepterId,
-            vsComputer = false,
-            mode = GameMode.VS_COLLEAGUE
-        )
-        saveSession(session)
-        sessionsCache[session.id] = session
-        playerToSession[creator] = session.id
-        playerToSession[accepterId] = session.id
-        return session
     }
-
     /** Создать турнирный матч между двумя игроками. */
-    fun createTournamentSession(
+    @Synchronized fun createTournamentSession(
         player1Id: Long,
         player2Id: Long,
         tournamentMatchId: String
     ): GameSession {
-        cancelActiveSession(player1Id)
-        cancelActiveSession(player2Id)
+        require(getSessionByPlayer(player1Id) == null)
+        require(getSessionByPlayer(player2Id) == null)
         val session = GameSession(
             id = newId(),
             player1Id = player1Id,
@@ -158,6 +169,7 @@ class GameStore(private val db: Database) {
             mode = GameMode.TOURNAMENT,
             tournamentMatchId = tournamentMatchId
         )
+        session.updateTurnDeadline(System.currentTimeMillis() + GameSession.TURN_MILLIS)
         saveSession(session)
         sessionsCache[session.id] = session
         playerToSession[player1Id] = session.id
@@ -165,7 +177,6 @@ class GameStore(private val db: Database) {
         return session
     }
 
-    fun getSession(id: String): GameSession? = sessionsCache[id]
 
     fun getSessionByPlayer(playerId: Long): GameSession? {
         val sid = playerToSession[playerId] ?: return null
@@ -177,26 +188,62 @@ class GameStore(private val db: Database) {
         saveSession(session)
     }
 
-    fun removeSession(id: String) {
-        val session = sessionsCache.remove(id) ?: return
-        playerToSession.remove(session.player1Id)
-        if (!session.vsComputer) playerToSession.remove(session.player2Id)
-        // Помечаем как завершённую в БД (оставляем для истории)
-        db.connection().use { conn ->
-            conn.prepareStatement(
-                "UPDATE games SET finished = TRUE, turn_deadline = NULL WHERE id = ?"
-            ).use { ps ->
-                ps.setString(1, id)
-                ps.executeUpdate()
-            }
+    fun activeSessions(): List<GameSession> = sessionsCache.values.filter { !it.finished }
+
+    fun sessionsToSync(): List<GameSession> = sessionsCache.values.toList()
+
+    @Synchronized fun markSynced(session: GameSession) {
+        session.ui.needsSync = false
+        try { persistSession(session) }
+        catch (e: Exception) { session.ui.needsSync = true; throw e }
+        if (session.finished) sessionsCache.remove(session.id)
+    }
+
+    /** Roll back the cached object if the database transaction fails. */
+    @Synchronized fun update(session: GameSession, action: () -> Unit) {
+        val b1 = session.exportBoard1()
+        val b2 = session.exportBoard2()
+        val ai = session.exportAiState()
+        val turn = session.turnIsPlayer1
+        val finished = session.finished
+        val winner = session.winnerId
+        val deadline = session.turnDeadline
+        val rules = session.rules.copy()
+        val ui = session.ui.copy(player1 = session.ui.player1.copy(), player2 = session.ui.player2.copy())
+        try {
+            action()
+            session.ui.needsSync = true
+            if (session.finished) completeSession(session) else persistSession(session)
+        } catch (e: Exception) {
+            session.restoreState(b1, b2, ai, turn, finished, winner,
+                session.enemyKeyboardMessageId1, session.enemyKeyboardMessageId2, deadline)
+            session.ui = ui
+            session.rules = rules
+            throw e
         }
     }
 
-    fun cancelActiveSession(playerId: Long) {
-        val session = getSessionByPlayer(playerId) ?: return
-        removeSession(session.id)
+    /** Commit the game and tournament result together before sending notifications. */
+    fun completeSession(session: GameSession) {
+        db.connection().use { conn ->
+            conn.autoCommit = false
+            try {
+                if (session.mode == GameMode.TOURNAMENT) {
+                    val tournament = tournamentForMatch(requireNotNull(session.tournamentMatchId)) ?: error("Tournament missing")
+                    tournament.recordResult(requireNotNull(session.tournamentMatchId), session.winnerId, conn)
+                }
+                saveSession(session, conn)
+                conn.commit()
+            } catch (e: Exception) {
+                conn.rollback()
+                throw e
+            }
+        }
+        // Keep the finished session until both result cards have been synchronized.
+        // `markSynced` removes it afterwards; this lets a restart repair a partial Telegram failure.
+        playerToSession.remove(session.player1Id, session.id)
+        if (!session.vsComputer) playerToSession.remove(session.player2Id, session.id)
     }
-
     // ---- Турниры ----
 
     fun createTournament(id: String, groupSize: Int, advance: Int): Tournament {
@@ -253,18 +300,32 @@ class GameStore(private val db: Database) {
 
     // ---- Внутренние методы БД ----
 
+    fun tournamentForMatch(matchId: String): Tournament? {
+        val id = db.connection().use { conn ->
+            conn.prepareStatement("SELECT tournament_id FROM tournament_matches WHERE id = ?").use { ps ->
+                ps.setString(1, matchId)
+                ps.executeQuery().use { rs -> if (rs.next()) rs.getString(1) else null }
+            }
+        }
+        return id?.let { getTournament(it) }
+    }
+
     private fun saveSession(session: GameSession) {
+        db.connection().use { saveSession(session, it) }
+    }
+
+    private fun saveSession(session: GameSession, conn: java.sql.Connection) {
         val board1Json = mapper.writeValueAsString(session.exportBoard1())
         val board2Json = mapper.writeValueAsString(session.exportBoard2())
         val aiJson = session.exportAiState()?.let { mapper.writeValueAsString(it) }
 
-        db.connection().use { conn ->
+        run {
             conn.prepareStatement(
                 """
                 INSERT INTO games (id, player1_id, player2_id, vs_computer, mode, tournament_match_id,
                                    board1, board2, ai_state, turn_is_player1, finished, winner_id,
-                                   enemy_keyboard_message_id1, enemy_keyboard_message_id2, turn_deadline)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   enemy_keyboard_message_id1, enemy_keyboard_message_id2, turn_deadline, ui_state, rules_state, finish_reason, finished_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO UPDATE SET
                     board1 = EXCLUDED.board1,
                     board2 = EXCLUDED.board2,
@@ -274,7 +335,8 @@ class GameStore(private val db: Database) {
                     winner_id = EXCLUDED.winner_id,
                     enemy_keyboard_message_id1 = EXCLUDED.enemy_keyboard_message_id1,
                     enemy_keyboard_message_id2 = EXCLUDED.enemy_keyboard_message_id2,
-                    turn_deadline = EXCLUDED.turn_deadline
+                    turn_deadline = EXCLUDED.turn_deadline, ui_state = EXCLUDED.ui_state,
+                    rules_state=EXCLUDED.rules_state, finish_reason=EXCLUDED.finish_reason, finished_at=EXCLUDED.finished_at
                 """.trimIndent()
             ).use { ps ->
                 ps.setString(1, session.id)
@@ -300,6 +362,10 @@ class GameStore(private val db: Database) {
                 } else {
                     ps.setNull(15, Types.BIGINT)
                 }
+                ps.setString(16, mapper.writeValueAsString(session.ui))
+                ps.setString(17, mapper.writeValueAsString(session.rules))
+                ps.setString(18, session.rules.finishReason)
+                if(session.rules.finishedAt == null) ps.setNull(19,Types.BIGINT) else ps.setLong(19,session.rules.finishedAt!!)
                 ps.executeUpdate()
             }
         }
@@ -315,7 +381,7 @@ class GameStore(private val db: Database) {
             """
             SELECT vs_computer, mode, tournament_match_id, board1, board2, ai_state,
                    turn_is_player1, finished, winner_id,
-                   enemy_keyboard_message_id1, enemy_keyboard_message_id2, turn_deadline
+                   enemy_keyboard_message_id1, enemy_keyboard_message_id2, turn_deadline, ui_state, rules_state
             FROM games WHERE id = ?
             """.trimIndent()
         ).use { ps ->
@@ -345,10 +411,43 @@ class GameStore(private val db: Database) {
                     turnIsPlayer1, finished, winnerId,
                     msgId1, msgId2, realDeadline
                 )
+                session.ui = mapper.readValue(rs.getString("ui_state"), GameUi::class.java)
+                session.rules = mapper.readValue(rs.getString("rules_state"), GameRules::class.java)
                 return session
             }
         }
     }
 
     private fun newId(): String = UUID.randomUUID().toString().replace("-", "")
+
+    fun inviteCreator(payload: String): Long? {
+        val key = payload.substringAfter('_',payload)
+        val claimed = if('_' in payload) payload.substringBefore('_').toLongOrNull() ?: return null else null
+        return db.connection().use { conn -> conn.prepareStatement("SELECT creator_id FROM invites WHERE invite_id=?").use { ps ->
+            ps.setString(1,key)
+            ps.executeQuery().use { rs -> if(rs.next()) rs.getLong(1).takeIf { claimed==null || it==claimed } else null }
+        } }
+    }
+
+    /** UI-only write: an HTTP response must never overwrite boards or the turn. Caller holds this store's monitor. */
+    @Synchronized fun saveCardId(session: GameSession, playerId: Long, own: Boolean, messageId: Long) {
+        val view = session.uiFor(playerId)
+        val previous = if(own) view.ownMessageId else view.enemyMessageId
+        if(own) view.ownMessageId=messageId else view.enemyMessageId=messageId
+        try { saveUi(session) } catch(e: Exception) {
+            if(own) view.ownMessageId=previous else view.enemyMessageId=previous
+            throw e
+        }
+    }
+    @Synchronized fun markSyncedIfCurrent(session: GameSession, revision1: Long, revision2: Long) {
+        if(session.ui.player1.revision!=revision1 || session.ui.player2.revision!=revision2) return
+        session.ui.needsSync=false
+        try { saveUi(session) } catch(e: Exception) { session.ui.needsSync=true; throw e }
+        if(session.finished) sessionsCache.remove(session.id)
+    }
+    private fun saveUi(session: GameSession) {
+        db.connection().use { conn -> conn.prepareStatement("UPDATE games SET ui_state=? WHERE id=?").use { ps ->
+            ps.setString(1,mapper.writeValueAsString(session.ui)); ps.setString(2,session.id); ps.executeUpdate()
+        } }
+    }
 }

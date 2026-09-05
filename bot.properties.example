@@ -1,0 +1,31 @@
+# Настройки NMH Team. Заполни этот файл перед запуском.
+# Файл читается в UTF-8. Секреты из bot.properties исключены из Git.
+# Непустые переменные окружения имеют приоритет над этим файлом.
+
+# Токен от BotFather. Числовой ID самого бота отдельно не нужен.
+BOT_TOKEN=
+# Username бота без @
+BOT_USERNAME=
+
+# Полный Bot API ID канала NMH Team или тестового канала, например -1001234567890.
+# Префикс -100 повторно НЕ добавляется. Бот должен быть администратором канала.
+ACCESS_CHANNEL_ID=
+# Ссылка для кнопки «Открыть канал»: публичная или пригласительная.
+CORPORATE_CHAT_URL=
+# Числовые Telegram ID администраторов через запятую, без @.
+ADMIN_IDS=
+
+# При запуске через Docker Compose эти значения переопределяются настройками сервиса db.
+DB_URL=jdbc:postgresql://localhost:5432/seabattle
+DB_USER=seabattle
+DB_PASSWORD=
+
+# Предварительная запись. Дата — только текст, автоматического старта нет.
+TOURNAMENT_DATE=20 сентября
+TOURNAMENT_PRIZES=Победителя и призёров ждут призы.
+TOURNAMENT_BRACKET_ENABLED=false
+GROUP_SIZE=4
+PLAYERS_PER_GROUP_ADVANCE=2
+
+# Оформление можно заполнить позже. В Docker файл подключается отдельно.
+BRAND_EMOJI_FILE=brand-emoji.example.json

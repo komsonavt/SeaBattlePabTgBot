@@ -1,0 +1,90 @@
+package com.company.seabattle.game
+
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import java.nio.file.Path
+
+data class BrandEmoji(val id: String? = null, val alt: String) {
+    init {
+        require(id == null || id.matches(Regex("[0-9]+"))) { "custom_emoji_id must be numeric" }
+        require(alt.isNotBlank()) { "Emoji alternative text is required" }
+    }
+    fun html(): String = if (id == null) escapeHtml(alt)
+        else "<tg-emoji emoji-id=\"$id\">${escapeHtml(alt)}</tg-emoji>"
+}
+
+class BoardTheme(private val roles: Map<String, BrandEmoji>) {
+    fun cell(cell: Cell, enemy: Boolean = false): String = roles.getValue(when (cell) {
+        Cell.WATER -> "sea"
+        Cell.SHIP -> if (enemy) "sea" else "ship"
+        Cell.MISS -> "miss"
+        Cell.HIT -> "hit"
+        Cell.SUNK -> "sunk"
+    }).html()
+    companion object {
+        private val defaults = mapOf("sea" to "🌊", "ship" to "🚢", "miss" to "💥", "hit" to "💣", "sunk" to "☠️")
+        fun load(path: String? = System.getenv("BRAND_EMOJI_FILE")): BoardTheme {
+            if (path.isNullOrBlank()) return BoardTheme(defaults.mapValues { BrandEmoji(alt = it.value) })
+            val json = jacksonObjectMapper().readTree(Path.of(path).toFile())
+            return BoardTheme(defaults.mapValues { (role, _) ->
+                val item = requireNotNull(json[role]) { "Missing emoji role: $role" }
+                BrandEmoji(item["id"]?.takeUnless { it.isNull }?.asText(), item["alt"]?.asText().orEmpty())
+            })
+        }
+    }
+}
+
+fun escapeHtml(text: String): String = text.replace("&", "&amp;").replace("<", "&lt;")
+    .replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")
+
+/** Two Rich Message cards. Hidden ships never enter enemy markup. */
+class RichBoardRenderer(private val theme: BoardTheme = BoardTheme.load()) {
+    fun own(board: Board): String = buildString {
+        append("<h3>Твоё поле</h3><table compact bordered><tr><th></th>")
+        Coord.COL_LETTERS.forEach { append("<th>$it</th>") }
+        append("</tr>")
+        for (r in 0 until Board.SIZE) {
+            append("<tr><th>${r + 1}</th>")
+            for (c in 0 until Board.SIZE) append("<td>${theme.cell(board.cellAt(r, c))}</td>")
+            append("</tr>")
+        }
+        append("</table>")
+    }
+    fun enemy(board: Board, gameId: String, revision: Long, half: Int, canFire: Boolean, notice: String,
+        finished: Boolean = false, vsComputer: Boolean = false, confirmSurrender: Boolean = false): String = buildString {
+        require(half in 0..1)
+        append("<h3>Поле соперника</h3><p>${escapeHtml(notice)}</p>")
+        for (r in 0 until Board.SIZE) {
+            append("<tg-button-row>")
+            for (c in half * 5 until half * 5 + 5) {
+                val cell = board.cellAt(r, c)
+                val unknown = cell == Cell.WATER || cell == Cell.SHIP
+                val label = if (unknown) Coord(r, c).label() else theme.cell(cell, enemy = true)
+                if (unknown && canFire) {
+                    val data = GameAction(gameId, revision, "fire", r * 10 + c).encode()
+                    append("<tg-button type=\"callback_data\" data=\"$data\">$label</tg-button>")
+                } else append("<tg-button type=\"disabled\">$label</tg-button>")
+            }
+            append("</tg-button-row>")
+        }
+        append("<tg-button-row>")
+        for (page in 0..1) {
+            val label = if (page == 0) "← А–Д" else "Е–К →"
+            if (page == half) append("<tg-button type=\"disabled\">$label</tg-button>")
+            else append("<tg-button type=\"callback_data\" data=\"${GameAction(gameId, revision, "half", page).encode()}\">$label</tg-button>")
+        }
+        append("</tg-button-row>")
+        append("<tg-button-row>")
+        if(!finished) {
+            if(confirmSurrender) {
+                append(button("Да, сдаться",GameAction(gameId,revision,"confirm",0).encode()))
+                append(button("Продолжить бой",GameAction(gameId,revision,"cancel",0).encode()))
+            } else append(button("Сдаться",GameAction(gameId,revision,"surrender",0).encode()))
+        } else {
+            append(button("Таблица лидеров","leaderboard"))
+            if(vsComputer) append(button("Ещё раз","mode_cpu"))
+        }
+        append(button("В меню","menu"))
+        append("</tg-button-row>")
+    }
+    private fun button(text: String, data: String) = "<tg-button type=\"callback_data\" data=\"$data\">$text</tg-button>"
+}

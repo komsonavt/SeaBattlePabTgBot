@@ -54,10 +54,84 @@ class GameSession(
     /** Дедлайн текущего хода (epoch millis). 0 — таймер не установлен. */
     var turnDeadline: Long = 0L
 
-    fun setWinner(winner: Long) {
+    var ui: GameUi = GameUi()
+    var rules: GameRules = GameRules()
+
+    fun accepts(action: com.company.seabattle.game.GameAction, playerId: Long, messageId: Long): Boolean {
+        if (finished || action.gameId != id || playerId != player1Id && playerId != player2Id) return false
+        val view = uiFor(playerId)
+        return action.revision == view.revision && messageId == view.enemyMessageId && messageId > 0
+    }
+
+    fun uiFor(playerId: Long): PlayerUi = if (playerId == player1Id) ui.player1 else ui.player2
+
+    fun invalidateViews() {
+        ui.player1.revision++
+        ui.player2.revision++
+    }
+
+    /** One human action and the complete computer response, without network effects. */
+    fun fire(playerId: Long, coord: com.company.seabattle.game.Coord): Boolean {
+        if (finished || playerId != currentTurnPlayerId || playerId == 0L) return false
+        val enemy = if (playerId == player1Id) board2 else board1
+        val result = enemy.fire(coord)
+        if (result.already) return false
+        val ownNotice = when {
+            result.sunk -> "Корабль в ${coord.label()} потоплен — стреляй ещё!"
+            result.hit -> "Попадание в ${coord.label()} — стреляй ещё!"
+            else -> "Промах в ${coord.label()} — ход соперника."
+        }
+        val enemyNotice = when {
+            result.sunk -> "Соперник потопил твой корабль в ${coord.label()}."
+            result.hit -> "Соперник попал в ${coord.label()}."
+            else -> "Соперник промахнулся в ${coord.label()}. Твой ход!"
+        }
+        if (playerId == player1Id) { rules.notice1 = ownNotice; rules.notice2 = enemyNotice }
+        else { rules.notice2 = ownNotice; rules.notice1 = enemyNotice }
+        if (enemy.allSunk()) setWinner(playerId)
+        else if (!result.hit) switchTurn()
+        if (vsComputer && !finished && !turnIsPlayer1) resumeComputerTurn()
+        invalidateViews()
+        return true
+    }
+
+    fun resumeComputerTurn() {
+        if (!vsComputer || finished || turnIsPlayer1) return
+        val computer = requireNotNull(ai)
+        while (!finished && !turnIsPlayer1) {
+            val result = board1.fire(computer.chooseTarget(board1))
+            computer.onShotResult(result)
+            if (board1.allSunk()) setWinner(0L)
+            else if (!result.hit) switchTurn()
+        }
+    }
+
+    fun expire(now: Long): Boolean {
+        if (vsComputer || finished || turnDeadline <= 0 || now < turnDeadline) return false
+        val skips = if (turnIsPlayer1) ++rules.skips1 else ++rules.skips2
+        val notice = if (skips <= 3) "Время вышло: пропуск $skips из 3. Ход передан сопернику."
+            else "Четвёртый пропуск — техническое поражение."
+        if (turnIsPlayer1) { rules.notice1 = notice; rules.notice2 = "Соперник пропустил ход ($skips)." }
+        else { rules.notice2 = notice; rules.notice1 = "Соперник пропустил ход ($skips)." }
+        if (skips >= 4) setWinner(if (turnIsPlayer1) player2Id else player1Id, "TIMEOUT", now)
+        else { switchTurn(); turnDeadline = now + TURN_MILLIS }
+        invalidateViews()
+        return true
+    }
+
+    /** Used once after a restart: at most one overdue turn is counted, then a new full turn begins. */
+    fun recoverDeadline(now: Long) {
+        if (vsComputer || finished) { turnDeadline = 0; return }
+        if (turnDeadline <= 0) turnDeadline = now + TURN_MILLIS
+        else if (now >= turnDeadline) expire(now)
+    }
+
+    fun setWinner(winner: Long, reason: String = "FLEET_DESTROYED", now: Long = System.currentTimeMillis()) {
         winnerId = winner
         finished = true
         turnDeadline = 0L
+        rules.finishReason = reason
+        rules.finishedAt = now
     }
 
     fun switchTurn() {
@@ -66,7 +140,7 @@ class GameSession(
 
     /** Установить новый дедлайн хода. */
     fun updateTurnDeadline(deadlineMillis: Long) {
-        turnDeadline = deadlineMillis
+        turnDeadline = if (vsComputer || finished) 0 else deadlineMillis
     }
 
     /** Очистить дедлайн (например, при завершении игры). */
@@ -112,7 +186,16 @@ class GameSession(
         this.enemyKeyboardMessageId2 = enemyKeyboardMessageId2
         this.turnDeadline = turnDeadline
     }
+
+    companion object { const val TURN_MILLIS = 180_000L }
 }
+
+data class GameRules(var skips1: Int = 0, var skips2: Int = 0, var notice1: String = "Выбери клетку для первого выстрела.",
+    var notice2: String = "Соперник ходит первым.", var finishReason: String? = null, var finishedAt: Long? = null)
+
+data class PlayerUi(var ownMessageId: Long = 0, var enemyMessageId: Long = 0, var half: Int = 0, var revision: Long = 0,
+    var confirmingSurrender: Boolean = false)
+data class GameUi(var player1: PlayerUi = PlayerUi(), var player2: PlayerUi = PlayerUi(), var needsSync: Boolean = true)
 
 /** Режим игры. */
 enum class GameMode {

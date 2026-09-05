@@ -9,6 +9,9 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardRow
 import org.telegram.telegrambots.meta.api.objects.message.Message
+import org.telegram.telegrambots.meta.api.objects.InputFile
+import org.telegram.telegrambots.meta.api.methods.send.SendDocument
+import java.io.ByteArrayInputStream
 
 /**
  * Вспомогательные функции для работы с Telegram API.
@@ -48,6 +51,13 @@ object BotHelper {
         parseMode: String? = PARSE_MODE
     ): Long {
         return sendText(client, chatId, text, parseMode, keyboard).messageId.toLong()
+    }
+
+    fun sendCsv(client: TelegramClient, chatId: Long, filename: String, content: String, caption: String) {
+        val file = InputFile(ByteArrayInputStream(content.toByteArray(Charsets.UTF_8)), filename)
+        val request = SendDocument(chatId.toString(), file)
+        request.caption = caption
+        client.execute(request)
     }
 
     /** Редактировать текст сообщения (и опционально клавиатуру). */

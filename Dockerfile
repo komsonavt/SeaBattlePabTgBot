@@ -1,31 +1,19 @@
-# ===== Runtime-образ с готовым JAR =====
-# JAR собирается ЛОКАЛЬНО (gradlew jar), а не на VPS.
-# Это экономит ~18 минут на каждой сборке на слабом сервере.
-#
-# Перед сборкой образа выполните локально:
-#   gradlew jar
-# (или на Windows: gradlew.bat jar)
-#
-# Готовый JAR появится в build/libs/
+FROM gradle:8.14.3-jdk21-alpine AS builder
+
+WORKDIR /build
+
+# Docker использует этот слой повторно, пока зависимости проекта не менялись.
+COPY gradlew build.gradle.kts settings.gradle.kts ./
+COPY gradle ./gradle
+RUN chmod +x gradlew && ./gradlew --no-daemon dependencies
+
+COPY src ./src
+RUN ./gradlew --no-daemon jar
 
 FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app
+RUN mkdir -p /app/config
+COPY --from=builder /build/build/libs/*.jar /app/seabattle.jar
 
-# Копируем собранный fat-jar из локальной сборки
-COPY build/libs/*.jar /app/seabattle.jar
-
-# Переменные окружения (переопределяются при запуске)
-ENV BOT_TOKEN=""
-ENV BOT_USERNAME=""
-ENV CORPORATE_CHAT_ID=""
-ENV ADMIN_IDS=""
-ENV GROUP_SIZE="4"
-ENV PLAYERS_PER_GROUP_ADVANCE="2"
-ENV DB_URL="jdbc:postgresql://db:5432/seabattle"
-ENV DB_USER="seabattle"
-ENV DB_PASSWORD="seabattle"
-ENV TURN_TIMEOUT_SECONDS="300"
-
-# Запуск бота
 ENTRYPOINT ["java", "-jar", "/app/seabattle.jar"]

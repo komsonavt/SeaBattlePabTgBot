@@ -3,6 +3,9 @@ package com.company.seabattle.access
 import org.telegram.telegrambots.meta.generics.TelegramClient
 import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatMember
 import java.util.concurrent.ConcurrentHashMap
+import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMemberRestricted
+
+enum class AccessResult { ALLOWED, NOT_MEMBER, UNAVAILABLE }
 
 /**
  * Контроль доступа: проверяет, состоит ли пользователь в корпоративном чате.
@@ -17,7 +20,7 @@ class AccessGuard(
     private val corporateChatId: Long,
     private val adminIds: Set<Long> = emptySet()
 ) {
-    private data class CacheEntry(val allowed: Boolean, val timestamp: Long)
+    private data class CacheEntry(val result: AccessResult, val timestamp: Long)
 
     private val cache = ConcurrentHashMap<Long, CacheEntry>()
 
@@ -28,29 +31,30 @@ class AccessGuard(
      * Остальные — только если состоят в корпоративном чате.
      */
     fun isAllowed(userId: Long): Boolean {
-        if (userId in adminIds) return true
-        val entry = cache[userId]
-        val now = System.currentTimeMillis()
-        if (entry != null && now - entry.timestamp < CACHE_TTL_MS) {
-            return entry.allowed
-        }
-        val allowed = checkMembership(userId)
-        cache[userId] = CacheEntry(allowed, now)
-        return allowed
+        return check(userId) == AccessResult.ALLOWED
     }
 
-    private fun checkMembership(userId: Long): Boolean {
+    fun check(userId: Long, fresh: Boolean = false): AccessResult {
+        if (userId in adminIds) return AccessResult.ALLOWED
+        val entry = cache[userId]
+        val now = System.currentTimeMillis()
+        if (!fresh && entry != null && now - entry.timestamp < CACHE_TTL_MS) {
+            return entry.result
+        }
+        val result = checkMembership(userId)
+        if(result != AccessResult.UNAVAILABLE) cache[userId] = CacheEntry(result, now)
+        return result
+    }
+
+    private fun checkMembership(userId: Long): AccessResult {
         return try {
             val member = client.execute(
                 GetChatMember(corporateChatId.toString(), userId)
             )
-            val status = member.status
-            // "left" и "kicked" означают, что пользователь не в чате.
-            // Все остальные статусы (member, creator, administrator, restricted) — в чате.
-            status != "left" && status != "kicked"
+            membership(member.status, (member as? ChatMemberRestricted)?.isMember ?: false)
         } catch (e: Exception) {
             // Если не удалось проверить (бот не админ, нет сети и т.п.) — закрываем доступ.
-            false
+            AccessResult.UNAVAILABLE
         }
     }
 
@@ -65,6 +69,12 @@ class AccessGuard(
     }
 
     companion object {
+        fun membership(status: String, restrictedMember: Boolean = false): AccessResult = when(status) {
+            "creator", "administrator", "member" -> AccessResult.ALLOWED
+            "restricted" -> if(restrictedMember) AccessResult.ALLOWED else AccessResult.NOT_MEMBER
+            "left", "kicked" -> AccessResult.NOT_MEMBER
+            else -> AccessResult.UNAVAILABLE
+        }
         private const val CACHE_TTL_MS = 5 * 60 * 1000L // 5 минут
     }
 }

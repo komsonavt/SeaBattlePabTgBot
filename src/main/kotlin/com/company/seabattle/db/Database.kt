@@ -45,8 +45,16 @@ class Database(
     /** Создать таблицы, если их ещё нет. Безопасно вызывать при каждом старте. */
     fun initSchema() {
         dataSource.connection.use { conn ->
-            conn.createStatement().use { stmt ->
-                stmt.execute(SCHEMA_SQL)
+            conn.autoCommit = false
+            try {
+                conn.createStatement().use { stmt ->
+                    stmt.execute(SCHEMA_SQL)
+                    stmt.execute(MVP_SQL)
+                }
+                conn.commit()
+            } catch (e: Exception) {
+                conn.rollback()
+                throw e
             }
         }
         println("Схема БД инициализирована.")
@@ -59,6 +67,33 @@ class Database(
     }
 
     companion object {
+        private val MVP_SQL = """
+            ALTER TABLE games ADD COLUMN IF NOT EXISTS rules_state TEXT NOT NULL DEFAULT '{}';
+            ALTER TABLE games ADD COLUMN IF NOT EXISTS finish_reason VARCHAR(32);
+            ALTER TABLE games ADD COLUMN IF NOT EXISTS finished_at BIGINT;
+            ALTER TABLE games ADD COLUMN IF NOT EXISTS rules_version INT NOT NULL DEFAULT 0;
+            UPDATE games SET turn_deadline = CASE WHEN vs_computer THEN NULL
+                ELSE (EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000)::BIGINT + 180000 END,
+                rules_state = '{}', ui_state = (ui_state::jsonb || '{"needsSync":true}'::jsonb)::text
+                WHERE NOT finished AND rules_version = 0;
+            UPDATE games SET rules_version = 1 WHERE rules_version = 0;
+            ALTER TABLE games ALTER COLUMN rules_version SET DEFAULT 1;
+            ALTER TABLE invites ADD COLUMN IF NOT EXISTS game_id VARCHAR(64);
+            UPDATE invites SET game_id = md5(invite_id || random()::text) WHERE game_id IS NULL;
+            ALTER TABLE invites ALTER COLUMN game_id SET NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_invites_game ON invites(game_id);
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                user_id BIGINT PRIMARY KEY, first_name TEXT NOT NULL, last_name TEXT,
+                username TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS pending_joins (
+                user_id BIGINT PRIMARY KEY, payload VARCHAR(64) NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS tournament_preregistrations (
+                user_id BIGINT PRIMARY KEY, first_name TEXT NOT NULL, last_name TEXT,
+                username TEXT, registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+        """.trimIndent()
         private val SCHEMA_SQL = """
             -- Игровые сессии (все режимы)
             CREATE TABLE IF NOT EXISTS games (
@@ -81,6 +116,7 @@ class Database(
             );
 
             -- Индекс для быстрого поиска активной игры игрока
+            ALTER TABLE games ADD COLUMN IF NOT EXISTS ui_state TEXT NOT NULL DEFAULT '{}';
             CREATE INDEX IF NOT EXISTS idx_games_player1 ON games(player1_id) WHERE NOT finished;
             CREATE INDEX IF NOT EXISTS idx_games_player2 ON games(player2_id) WHERE NOT finished;
 

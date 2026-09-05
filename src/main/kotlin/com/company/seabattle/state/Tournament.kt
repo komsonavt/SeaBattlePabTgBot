@@ -278,54 +278,28 @@ class Tournament(
     /**
      * Отметить матч сыгранным с указанным победителем.
      */
-    fun recordResult(matchId: String, winnerId: Long) {
-        val match = findMatch(matchId) ?: return
+    fun recordResult(matchId: String, winnerId: Long, conn: Connection) {
+        val match = requireNotNull(findMatch(matchId)) { "Tournament match missing" }
+        require(winnerId == match.player1Id || winnerId == match.player2Id)
+        if (match.played) {
+            require(match.winnerId == winnerId) { "Conflicting match result" }
+            return
+        }
         match.winnerId = winnerId
         match.played = true
-        playerActiveMatch.remove(match.player1Id)
-        playerActiveMatch.remove(match.player2Id)
-        db.connection().use { conn ->
-            conn.autoCommit = false
-            try {
-                conn.prepareStatement(
-                    "UPDATE tournament_matches SET winner_id = ?, played = TRUE WHERE id = ?"
-                ).use { ps ->
-                    ps.setLong(1, winnerId)
-                    ps.setString(2, matchId)
-                    ps.executeUpdate()
-                }
-                // если это плей-офф — продвигаем победителя в следующий раунд
-                if (match.stage == MatchStage.PLAYOFF) {
-                    advancePlayoff(conn, match)
-                }
-                // проверяем завершение плей-офф
-                if (phase == TournamentPhase.PLAYOFF && playoffMatches.all { it.played }) {
-                    val winners = playoffMatches.filter {
-                        it.round == playoffMatches.maxOf { m -> m.round } && it.played
-                    }
-                    if (winners.isNotEmpty() && playoffMatches.none { !it.played }) {
-                        updatePhase(conn, TournamentPhase.FINISHED)
-                    }
-                }
-                conn.commit()
-            } catch (e: Exception) {
-                conn.rollback()
-                throw e
-            } finally {
-                conn.autoCommit = true
-            }
+        conn.prepareStatement("UPDATE tournament_matches SET winner_id = ?, played = TRUE WHERE id = ? AND NOT played").use { ps ->
+            ps.setLong(1, winnerId)
+            ps.setString(2, matchId)
+            check(ps.executeUpdate() == 1) { "Concurrent match result" }
         }
-        // обновляем фазу в памяти
-        if (phase == TournamentPhase.PLAYOFF && playoffMatches.all { it.played }) {
-            val winners = playoffMatches.filter {
-                it.round == playoffMatches.maxOf { m -> m.round } && it.played
-            }
-            if (winners.isNotEmpty() && playoffMatches.none { !it.played }) {
+        if (match.stage == MatchStage.PLAYOFF) {
+            advancePlayoff(conn, match)
+            if (playoffMatches.isNotEmpty() && playoffMatches.all { it.played }) {
+                updatePhase(conn, TournamentPhase.FINISHED)
                 phase = TournamentPhase.FINISHED
             }
         }
     }
-
     private fun advancePlayoff(conn: Connection, match: TournamentMatch) {
         val currentRound = match.round
         val nextRound = currentRound + 1

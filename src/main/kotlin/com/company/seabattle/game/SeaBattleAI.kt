@@ -63,7 +63,7 @@ class SeaBattleAI(private val rng: Random = Random.Default) : Serializable {
             for (c in 0 until Board.SIZE) {
                 if ((r + c) % 2 == 0) {
                     val coord = Coord(r, c)
-                    if (coord !in shots) candidates.add(coord)
+                    if (coord !in shots && board.cellAt(r, c) in listOf(Cell.WATER, Cell.SHIP)) candidates.add(coord)
                 }
             }
         }
@@ -71,7 +71,7 @@ class SeaBattleAI(private val rng: Random = Random.Default) : Serializable {
             // fallback — любая неисследованная
             for (r in 0 until Board.SIZE) for (c in 0 until Board.SIZE) {
                 val coord = Coord(r, c)
-                if (coord !in shots) candidates.add(coord)
+                if (coord !in shots && board.cellAt(r, c) in listOf(Cell.WATER, Cell.SHIP)) candidates.add(coord)
             }
         }
         return candidates.random(rng)
@@ -127,6 +127,7 @@ class SeaBattleAI(private val rng: Random = Random.Default) : Serializable {
      */
     fun onShotResult(result: Board.ShotResult) {
         shots.add(result.coord)
+        shots.addAll(result.around)
         when {
             result.sunk -> {
                 // Корабль уничтожен — добивать больше не нужно
