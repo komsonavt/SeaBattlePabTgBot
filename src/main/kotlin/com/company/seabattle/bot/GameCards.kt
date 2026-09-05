@@ -14,9 +14,16 @@ class GameCards(private val store: GameStore, private val rich: RichMessageClien
     fun request(session: GameSession, force: Boolean = false) {
         queue.submit(session.id) { sync(session,force) }
     }
-    private fun sync(session: GameSession, force: Boolean) {
+    /** Sends a fresh pair to the bottom of one player's chat instead of editing old cards. */
+    fun reopen(session: GameSession, playerId: Long) {
+        queue.submit(session.id) {
+            store.clearCardIds(session, playerId)
+            sync(session, true, playerId)
+        }
+    }
+    private fun sync(session: GameSession, force: Boolean, onlyPlayerId: Long? = null) {
         val snapshot = synchronized(store) {
-            val cards = listOf(session.player1Id,session.player2Id).filter { it!=0L }.flatMap { pid ->
+            val cards = listOf(session.player1Id,session.player2Id).filter { it!=0L && (onlyPlayerId == null || it == onlyPlayerId) }.flatMap { pid ->
                 val p1=pid==session.player1Id
                 val view=session.uiFor(pid)
                 val own=if(p1) session.board1 else session.board2

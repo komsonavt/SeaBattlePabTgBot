@@ -194,10 +194,10 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         rich.sync(userId, 0, "<h3>🏆 Турнир NMH Team</h3><p>Предварительный старт — ${config.tournamentDate}. Дату подтвердим отдельно.</p><p>${config.tournamentPrizes}</p><p>${if (registered) "Ты уже в предварительном списке ✅" else "Оставь заявку — мы сохраним имя, username и Telegram ID."}</p><tg-button-row><tg-button type=\"callback_data\" data=\"$action\">$label</tg-button>$admin<tg-button type=\"callback_data\" data=\"menu\">В меню</tg-button></tg-button-row>")
     }
     private fun registrationExport(userId: Long) = BotHelper.sendCsv(client, config.moderationChatId, "nmh-tournament-registrations.csv", store.community.registrationsCsv(), "Заявок: ${store.community.registrationCount()}", config.exportsTopicId)
-    private fun resume(userId: Long) { store.getSessionByPlayer(userId)?.let { cards.request(it, true) } ?: BotHelper.sendText(client, userId, "Активной игры нет.") }
+    private fun resume(userId: Long) { store.getSessionByPlayer(userId)?.let { cards.reopen(it, userId) } ?: BotHelper.sendText(client, userId, "Активной игры нет.") }
     private fun busy(userId: Long): Boolean {
         if (store.getSessionByPlayer(userId) == null) return false
-        BotHelper.sendText(client, userId, "Сначала заверши текущую игру или открой её командой /mygames."); return true
+        BotHelper.sendText(client, userId, "Партия уже ждёт тебя. Нажми «⚓ Продолжить игру» — поле появится внизу чата."); return true
     }
     private fun help(userId: Long) = BotHelper.sendText(client, userId, "Корабли расставляются автоматически. Попадание даёт ещё выстрел. В PvP на ход есть 3 минуты; после трёх пропусков четвёртый означает поражение. У ИИ таймера нет.")
 

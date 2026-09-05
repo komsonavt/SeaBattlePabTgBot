@@ -448,6 +448,19 @@ class GameStore(private val db: Database) {
             throw e
         }
     }
+    /** New card IDs invalidate callbacks in old game messages before a fresh pair is sent. */
+    @Synchronized fun clearCardIds(session: GameSession, playerId: Long) {
+        val view = session.uiFor(playerId)
+        val own = view.ownMessageId
+        val enemy = view.enemyMessageId
+        view.ownMessageId = 0
+        view.enemyMessageId = 0
+        try { saveUi(session) } catch (e: Exception) {
+            view.ownMessageId = own
+            view.enemyMessageId = enemy
+            throw e
+        }
+    }
     @Synchronized fun markSyncedIfCurrent(session: GameSession, revision1: Long, revision2: Long) {
         if(session.ui.player1.revision!=revision1 || session.ui.player2.revision!=revision2) return
         session.ui.needsSync=false
