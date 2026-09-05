@@ -26,7 +26,8 @@
 
 1. Скопируйте [bot.properties.example](/C:/Users/komsonavt/IdeaProjects/SeaBattlePabTgBot/bot.properties.example) в `bot.properties` и заполните токен, username, полный ID канала, ссылку и ID администраторов. `bot.properties` исключён из Git. Переменные окружения имеют приоритет.
 2. Для Docker скопируйте `.env.example` в `.env` и задайте надёжный `POSTGRES_PASSWORD`.
-3. `docker compose up --build -d`. Docker сам собирает JAR из исходников, локальная Gradle-сборка для запуска не нужна.
+3. Соберите JAR локально: `gradlew.bat jar` (Windows) или `./gradlew jar`.
+4. `docker compose up --build -d`. Сервер использует готовый JAR и не компилирует Kotlin.
 
 При запуске схема дополняется колонкой `games.ui_state` без удаления существующих партий. Старые карточки заменяются новой парой; старые кнопки не делают ход. `/mygames` повторно синхронизирует карточки и восстанавливает удалённые сообщения.
 

@@ -35,8 +35,11 @@ bin/
 
 ### Gradle ###
 .gradle/
-# Docker собирает JAR из исходников, поэтому артефакты Gradle не храним в Git.
-build/
+# Игнорируем всё в build/, кроме готового fat-JAR для быстрой поставки на VPS.
+build/*
+!build/libs/
+build/libs/*
+!build/libs/*.jar
 
 ### Environment / secrets ###
 .env
