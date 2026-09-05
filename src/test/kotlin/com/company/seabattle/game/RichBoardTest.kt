@@ -52,6 +52,39 @@ class RichBoardTest {
         assertTrue("data=\"menu\"" in cpu)
     }
 
+    @Test fun `all active and finished board controls have valid actions`() {
+        val renderer = RichBoardRenderer(BoardTheme.load(null))
+        val active = renderer.enemy(Board.random(), id, 7, 0, true, "Твой ход")
+        val confirmation = renderer.enemy(Board.random(), id, 7, 0, true, "Твой ход", confirmSurrender = true)
+        val finishedCpu = renderer.enemy(Board.random(), id, 7, 0, false, "Победа", finished = true, vsComputer = true)
+        assertTrue(GameAction.parse("game:$id:7:fire:0") != null)
+        assertTrue("game:$id:7:half:1" in active)
+        assertTrue("game:$id:7:surrender:0" in active)
+        assertTrue("game:$id:7:confirm:0" in confirmation)
+        assertTrue("game:$id:7:cancel:0" in confirmation)
+        assertTrue("data=\"leaderboard\"" in finishedCpu)
+        assertTrue("data=\"mode_cpu\"" in finishedCpu)
+        assertTrue("data=\"menu\"" in finishedCpu)
+    }
+
+    @Test fun `a human can finish a complete computer game`() {
+        val game = session(cpu = true)
+        while (!game.finished) {
+            if (game.currentTurnPlayerId == 1L) {
+                val target = buildList {
+                    for (row in 0 until Board.SIZE) for (col in 0 until Board.SIZE) {
+                        val cell = game.board2.cellAt(row, col)
+                        if (cell == Cell.WATER || cell == Cell.SHIP) add(Coord(row, col))
+                    }
+                }.first()
+                assertTrue(game.fire(1, target))
+            } else game.resumeComputerTurn()
+        }
+        assertTrue(game.finished)
+        assertTrue(game.winnerId in setOf(0L, 1L))
+        assertEquals(0L, game.turnDeadline)
+    }
+
     @Test fun `callback rejects old game old revision old message and another player`() {
         val s = session()
         s.ui.player1.enemyMessageId = 42
