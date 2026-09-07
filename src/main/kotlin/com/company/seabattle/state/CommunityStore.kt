@@ -43,6 +43,16 @@ class CommunityStore(private val db: Database) {
     fun saveForumTopic(key: String, threadId: Int) = db.connection().use { conn -> conn.prepareStatement("INSERT INTO forum_topics(topic_key,message_thread_id) VALUES (?,?) ON CONFLICT(topic_key) DO UPDATE SET message_thread_id=EXCLUDED.message_thread_id").use { ps ->
         ps.setString(1,key); ps.setInt(2,threadId); ps.executeUpdate()
     } }
+    fun workspaceChatId(): Long? = db.connection().use { conn -> conn.prepareStatement("SELECT chat_id FROM bot_workspace WHERE workspace_key='moderation'").use { ps -> ps.executeQuery().use { rs -> if(rs.next()) rs.getLong(1) else null } } }
+    fun activateWorkspace(chatId: Long) = db.connection().use { conn ->
+        conn.autoCommit=false
+        try {
+            val old=workspaceChatId()
+            if(old != null && old != chatId) conn.createStatement().executeUpdate("DELETE FROM forum_topics")
+            conn.prepareStatement("INSERT INTO bot_workspace(workspace_key,chat_id) VALUES ('moderation',?) ON CONFLICT(workspace_key) DO UPDATE SET chat_id=EXCLUDED.chat_id,activated_at=NOW()").use { ps -> ps.setLong(1,chatId);ps.executeUpdate() }
+            conn.commit()
+        } catch(e: Exception) { conn.rollback();throw e }
+    }
     fun bootstrapAdmins(ids: Set<Long>) = ids.forEach { addAdmin(it, null, "config") }
     fun addAdmin(userId: Long, addedBy: Long?, source: String = "invite") = db.connection().use { conn -> conn.prepareStatement("INSERT INTO bot_admins(user_id,added_by,source) VALUES (?,?,?) ON CONFLICT(user_id) DO NOTHING").use { ps ->
         ps.setLong(1,userId); if(addedBy == null) ps.setNull(2,java.sql.Types.BIGINT) else ps.setLong(2,addedBy); ps.setString(3,source); ps.executeUpdate()

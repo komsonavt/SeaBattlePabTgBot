@@ -22,7 +22,7 @@ import java.util.Properties
 data class BotConfig(
     val botToken: String,
     val botUsername: String,
-    val moderationChatId: Long,
+    val moderationChatId: Long?,
     val moderationTopicId: Int?,
     val exportsTopicId: Int?,
     val broadcastsTopicId: Int?,
@@ -57,11 +57,7 @@ data class BotConfig(
         fun fromEnv(): BotConfig {
             val token = env("BOT_TOKEN")
             val username = env("BOT_USERNAME")
-            val moderationChatId = env("MODERATION_CHAT_ID").toLongOrNull()
-                ?: error(
-                    "Не задана или некорректна переменная окружения MODERATION_CHAT_ID. " +
-                        "Ожидается числовой ID форума (например, -1001234567890)."
-                )
+            val moderationChatId = envOrNull("MODERATION_CHAT_ID")?.toLongOrNull()
             fun topic(name: String) = envOrNull(name)?.toIntOrNull()
             val admins = envOrNull("ADMIN_IDS")
                 ?.split(",")

@@ -115,6 +115,10 @@ class Database(
                 invite_id VARCHAR(32) PRIMARY KEY, creator_id BIGINT NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), claimed_by BIGINT, claimed_at TIMESTAMPTZ
             );
+            CREATE TABLE IF NOT EXISTS bot_workspace (
+                workspace_key VARCHAR(32) PRIMARY KEY, chat_id BIGINT NOT NULL,
+                activated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
         """.trimIndent()
         private val SCHEMA_SQL = """
             -- Игровые сессии (все режимы)

@@ -27,24 +27,14 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
     val client: TelegramClient = OkHttpTelegramClient(config.botToken)
     private val cards = GameCards(store, RichMessageClient(config.botToken), RichBoardRenderer())
     private val rich = RichMessageClient(config.botToken)
-    private lateinit var topics: ForumTopics
+    private var topics: ForumTopics? = null
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "GameDeadlineScanner").apply { isDaemon = true }
     }
 
     init {
         store.community.bootstrapAdmins(config.adminIds)
-        runCatching {
-            client.execute(GetChatAdministrators(config.moderationChatId.toString()))
-                .filter { it.status in setOf("creator", "owner") }
-                .forEach { store.community.addAdmin(it.user.id, null, "chat_owner") }
-        }.onFailure { println("Не удалось определить создателя супергруппы: ${it.javaClass.simpleName}") }
-        topics = ForumWorkspace.ensure(client, config, store.community)
-        if ("moderation" in topics.created) BotHelper.sendText(client, config.moderationChatId, Copy.text("admin_topic_moderation"), threadId = topics.moderation)
-        if ("exports" in topics.created) BotHelper.sendText(client, config.moderationChatId, Copy.text("admin_topic_exports"), replyMarkup = BotHelper.keyboard(listOf(listOf(
-            Copy.text("admin_export_stats") to "mod:stats", Copy.text("admin_export_tournament") to "mod:registrations"
-        ))), threadId = topics.exports)
-        if ("broadcasts" in topics.created) BotHelper.sendText(client, config.moderationChatId, Copy.text("admin_topic_broadcasts"), threadId = topics.broadcasts)
+        store.community.workspaceChatId()?.let(::activateForum)
         runCatching { BotHelper.registerCommands(client, listOf(
             "start" to Copy.text("command_start"), "menu" to Copy.text("command_menu"),
             "play_cpu" to Copy.text("command_play_cpu"), "play_friend" to Copy.text("command_play_friend"),
@@ -59,21 +49,39 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
 
     override fun consume(update: Update) = try {
         when {
+            update.hasMyChatMember() -> onBotAddedToChat(update)
             update.hasMessage() && update.message.hasText() -> onMessage(update)
             update.hasCallbackQuery() -> onCallback(update)
             else -> Unit
         }
     } catch (e: Exception) { println("Ошибка обработки обновления: ${e.javaClass.simpleName}") }
 
+    private fun onBotAddedToChat(update: Update) {
+        val change=update.myChatMember
+        val chat=change.chat
+        if (chat.isForum == true && change.newChatMember.status in setOf("administrator", "creator", "owner")) activateForum(chat.id)
+    }
+    private fun activateForum(chatId: Long) {
+        store.community.activateWorkspace(chatId)
+        client.execute(GetChatAdministrators(chatId.toString())).forEach { member ->
+            if(member.status in setOf("administrator", "creator", "owner")) store.community.addAdmin(member.user.id, null, "chat_admin")
+        }
+        val ready=ForumWorkspace.ensure(client,chatId,store.community)
+        topics=ready
+        if ("moderation" in ready.created) BotHelper.sendText(client,chatId,Copy.text("admin_topic_moderation"),threadId=ready.moderation)
+        if ("exports" in ready.created) BotHelper.sendText(client,chatId,Copy.text("admin_topic_exports"),replyMarkup=BotHelper.keyboard(listOf(listOf(Copy.text("admin_export_stats") to "mod:stats",Copy.text("admin_export_tournament") to "mod:registrations"))),threadId=ready.exports)
+        if ("broadcasts" in ready.created) BotHelper.sendText(client,chatId,Copy.text("admin_topic_broadcasts"),threadId=ready.broadcasts)
+    }
+
     private fun onMessage(update: Update) {
         val message = update.message
         val user = message.from
-        if (message.chatId == config.moderationChatId) {
+        if (message.chatId == store.community.workspaceChatId()) {
             if (store.community.isAdmin(user.id)) {
                 when (message.text.trim().lowercase()) {
                     "/export_stats" -> statisticsExport()
                     "/export_tournament" -> registrationExport()
-                    else -> if (message.messageThreadId == topics.broadcasts && !message.text.startsWith("/")) broadcast(user.id, message.text)
+                    else -> if (message.messageThreadId == topics?.broadcasts && !message.text.startsWith("/")) broadcast(user.id, message.text)
                 }
             }
             return
@@ -111,7 +119,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val message = query.message ?: return
         val user = query.from
         val data = query.data ?: return
-        if (message.chatId == config.moderationChatId) {
+        if (message.chatId == store.community.workspaceChatId()) {
             BotHelper.answerCallback(client, query.id)
             if (store.community.isAdmin(user.id)) when (data) {
                 "mod:stats" -> statisticsExport()
@@ -193,7 +201,8 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
             Copy.text("moderation_decline") to "mod:decline:${submitted.id}",
             Copy.text("moderation_block") to "mod:block:${submitted.id}"
         )))
-        BotHelper.sendText(client,config.moderationChatId,body,replyMarkup=keyboard,threadId=topics.moderation)
+        val chatId=store.community.workspaceChatId() ?: return true
+        BotHelper.sendText(client,chatId,body,replyMarkup=keyboard,threadId=topics?.moderation)
         BotHelper.sendText(client,userId,Copy.text("access_sent"))
         return true
     }
@@ -209,7 +218,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
             }
             "block" -> {
                 val request=store.community.blockRequest(parts[2],moderatorId) ?: return
-                runCatching { client.execute(BanChatMember(config.moderationChatId.toString(), request.userId)) }
+                store.community.workspaceChatId()?.let { chatId -> runCatching { client.execute(BanChatMember(chatId.toString(), request.userId)) } }
                 BotHelper.sendText(client,request.userId,Copy.text("access_blocked"))
             }
         }
@@ -217,7 +226,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
     private fun broadcast(authorId: Long, text: String) {
         val recipients=store.community.approvedUsers().filter { it !in store.community.adminIds() }
         recipients.forEach { id -> runCatching { BotHelper.sendText(client,id,text,parseMode=null) } }
-        BotHelper.sendText(client,config.moderationChatId,Copy.text("broadcast_done", "count" to recipients.size),threadId=topics.broadcasts)
+        store.community.workspaceChatId()?.let { BotHelper.sendText(client,it,Copy.text("broadcast_done", "count" to recipients.size),threadId=topics?.broadcasts) }
     }
 
     private fun menu(userId: Long) {
@@ -253,8 +262,8 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val link="https://t.me/${config.botUsername}?start=admin_${store.community.createAdminInvite(userId)}"
         BotHelper.sendText(client,userId,Copy.text("admin_invite_link", "link" to link))
     }
-    private fun registrationExport(userId: Long? = null) = BotHelper.sendCsv(client, config.moderationChatId, "nmh-tournament-registrations.csv", store.community.registrationsCsv(), Copy.text("admin_export_tournament_caption", "count" to store.community.registrationCount()), topics.exports)
-    private fun statisticsExport(userId: Long? = null) = BotHelper.sendCsv(client, config.moderationChatId, "nmh-audience-statistics.csv", store.community.audienceStatisticsCsv(), Copy.text("admin_export_stats_caption"), topics.exports)
+    private fun registrationExport(userId: Long? = null) { val chatId=store.community.workspaceChatId() ?: return; BotHelper.sendCsv(client, chatId, "nmh-tournament-registrations.csv", store.community.registrationsCsv(), Copy.text("admin_export_tournament_caption", "count" to store.community.registrationCount()), topics?.exports) }
+    private fun statisticsExport(userId: Long? = null) { val chatId=store.community.workspaceChatId() ?: return; BotHelper.sendCsv(client, chatId, "nmh-audience-statistics.csv", store.community.audienceStatisticsCsv(), Copy.text("admin_export_stats_caption"), topics?.exports) }
     private fun resume(userId: Long) { store.getSessionByPlayer(userId)?.let { cards.reopen(it, userId) } ?: BotHelper.sendText(client, userId, Copy.text("no_active_game")) }
     private fun busy(userId: Long): Boolean {
         if (store.getSessionByPlayer(userId) == null) return false
