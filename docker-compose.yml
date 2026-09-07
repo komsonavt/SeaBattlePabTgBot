@@ -26,7 +26,7 @@ services:
     volumes:
       - ${EMOJI_HOST_FILE:-./emoji.xml}:/app/emoji.xml:ro
       - ${BOT_CONFIG_HOST_FILE:-./bot.properties}:/app/config/bot.properties:ro
-      - ${COPY_HOST_FILE:-./copy.xml}:/app/copy.xml:ro
+      - ${COPY_HOST_FILE:-./seaBattleBot_text_for_editor.md}:/app/copy.md:ro
     depends_on:
       db:
         condition: service_healthy
@@ -48,7 +48,7 @@ services:
       TURN_TIMEOUT_SECONDS: ${TURN_TIMEOUT_SECONDS:-180}
       EMOJI_FILE: /app/emoji.xml
       BOT_CONFIG_FILE: /app/config/bot.properties
-      COPY_FILE: /app/copy.xml
+      COPY_FILE: /app/copy.md
 
 volumes:
   seabattle_pgdata:

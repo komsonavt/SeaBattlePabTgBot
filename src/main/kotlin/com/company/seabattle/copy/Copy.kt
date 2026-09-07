@@ -1,30 +1,56 @@
 package com.company.seabattle.copy
 
-import org.w3c.dom.Element
 import java.nio.file.Files
 import java.nio.file.Path
-import javax.xml.parsers.DocumentBuilderFactory
 
-/** User-facing copy. An external COPY_FILE overrides the bundled defaults. */
+/** User-facing copy loaded from the editor-friendly Markdown file. */
 object Copy {
-    private val values: Map<String, String> by lazy {
-        val external = System.getenv("COPY_FILE")?.takeIf { it.isNotBlank() }?.let(Path::of)
-        val stream = if (external != null && Files.isRegularFile(external)) Files.newInputStream(external)
-        else requireNotNull(Copy::class.java.getResourceAsStream("/copy.xml")) { "copy.xml not found" }
-        stream.use { input ->
-            val root = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input).documentElement
-            buildMap {
-                val nodes = root.childNodes
-                for (index in 0 until nodes.length) {
-                    val node = nodes.item(index)
-                    if (node is Element) put(node.tagName, node.textContent.trim())
-                }
-            }
+    private val external = System.getenv("COPY_FILE")?.takeIf { it.isNotBlank() }?.let(Path::of)
+    @Volatile private var loadedAt = Long.MIN_VALUE
+    @Volatile private var values: Map<String, String> = emptyMap()
+
+    fun text(key: String, vararg args: Pair<String, Any?>): String {
+        val current = loadIfChanged()
+        var result = current[key] ?: error("Copy key is missing: $key")
+        args.forEach { (name, value) -> result = result.replace("{$name}", value?.toString().orEmpty()) }
+        return result
+    }
+
+    private fun loadIfChanged(): Map<String, String> {
+        val file = external?.takeIf(Files::isRegularFile)
+        val stamp = file?.let { Files.getLastModifiedTime(it).toMillis() } ?: -1L
+        if (stamp == loadedAt && values.isNotEmpty()) return values
+        synchronized(this) {
+            if (stamp == loadedAt && values.isNotEmpty()) return values
+            val markdown = if (file != null) Files.readString(file)
+            else requireNotNull(Copy::class.java.getResourceAsStream("/copy.md")) { "copy.md not found" }
+                .bufferedReader().use { it.readText() }
+            values = parse(markdown)
+            loadedAt = stamp
+            return values
         }
     }
-    fun text(key: String, vararg args: Pair<String, Any?>): String {
-        var result = values[key] ?: error("Copy key is missing: $key")
-        args.forEach { (name, value) -> result = result.replace("{$name}", value?.toString().orEmpty()) }
+
+    private fun parse(markdown: String): Map<String, String> {
+        val result = linkedMapOf<String, String>()
+        var key: String? = null
+        val body = StringBuilder()
+        fun save() {
+            val currentKey = key ?: return
+            check(result.put(currentKey, body.toString().trim()) == null) { "Duplicate copy key: $currentKey" }
+        }
+        markdown.lineSequence().forEach { line ->
+            val match = Regex("^## ([a-z][a-z0-9_]*)\\s*$").matchEntire(line)
+            if (match != null) {
+                save()
+                key = match.groupValues[1]
+                body.clear()
+            } else if (key != null) {
+                body.appendLine(line)
+            }
+        }
+        save()
+        check(result.isNotEmpty()) { "No copy entries found in Markdown" }
         return result
     }
 }
