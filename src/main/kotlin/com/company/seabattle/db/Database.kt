@@ -107,6 +107,14 @@ class Database(
                 topic_key VARCHAR(32) PRIMARY KEY, message_thread_id INT NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
+            CREATE TABLE IF NOT EXISTS bot_admins (
+                user_id BIGINT PRIMARY KEY, added_by BIGINT, source VARCHAR(32) NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS admin_invites (
+                invite_id VARCHAR(32) PRIMARY KEY, creator_id BIGINT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), claimed_by BIGINT, claimed_at TIMESTAMPTZ
+            );
         """.trimIndent()
         private val SCHEMA_SQL = """
             -- Игровые сессии (все режимы)

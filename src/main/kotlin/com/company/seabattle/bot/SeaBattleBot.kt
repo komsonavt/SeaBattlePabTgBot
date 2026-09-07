@@ -15,6 +15,7 @@ import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateC
 import org.telegram.telegrambots.meta.api.objects.Update
 import org.telegram.telegrambots.meta.api.objects.User
 import org.telegram.telegrambots.meta.api.methods.groupadministration.BanChatMember
+import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatAdministrators
 import org.telegram.telegrambots.meta.generics.TelegramClient
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -32,6 +33,12 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
     }
 
     init {
+        store.community.bootstrapAdmins(config.adminIds)
+        runCatching {
+            client.execute(GetChatAdministrators(config.moderationChatId.toString()))
+                .filter { it.status in setOf("creator", "owner") }
+                .forEach { store.community.addAdmin(it.user.id, null, "chat_owner") }
+        }.onFailure { println("Не удалось определить создателя супергруппы: ${it.javaClass.simpleName}") }
         topics = ForumWorkspace.ensure(client, config, store.community)
         if ("moderation" in topics.created) BotHelper.sendText(client, config.moderationChatId, Copy.text("admin_topic_moderation"), threadId = topics.moderation)
         if ("exports" in topics.created) BotHelper.sendText(client, config.moderationChatId, Copy.text("admin_topic_exports"), replyMarkup = BotHelper.keyboard(listOf(listOf(
@@ -62,7 +69,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val message = update.message
         val user = message.from
         if (message.chatId == config.moderationChatId) {
-            if (user.id in config.adminIds) {
+            if (store.community.isAdmin(user.id)) {
                 when (message.text.trim().lowercase()) {
                     "/export_stats" -> statisticsExport()
                     "/export_tournament" -> registrationExport()
@@ -76,6 +83,9 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val text = message.text.trim()
         if (text.startsWith("/start")) {
             val payload = text.removePrefix("/start").trim().takeIf { it.isNotEmpty() }
+            if (payload?.startsWith("admin_") == true && store.community.claimAdminInvite(payload.removePrefix("admin_"), user.id)) {
+                BotHelper.sendText(client, user.id, Copy.text("admin_invite_accepted"))
+            }
             if (payload?.startsWith("join_") == true) store.community.rememberJoin(user.id, payload)
             enter(user.id, payload)
             return
@@ -103,7 +113,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val data = query.data ?: return
         if (message.chatId == config.moderationChatId) {
             BotHelper.answerCallback(client, query.id)
-            if (user.id in config.adminIds) when (data) {
+            if (store.community.isAdmin(user.id)) when (data) {
                 "mod:stats" -> statisticsExport()
                 "mod:registrations" -> registrationExport()
                 else -> if (data.startsWith("mod:")) moderate(user.id, data)
@@ -124,15 +134,16 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
             data == "cancel_preregister" -> { store.community.cancelRegistration(user.id); preregistration(user.id) }
             data == "cancel_invite" -> { store.cancelInvite(user.id); menu(user.id) }
             data == "resume" -> resume(user.id)
-            data == "download_registrations" && user.id in config.adminIds -> registrationExport(user.id)
-            data == "download_stats" && user.id in config.adminIds -> statisticsExport(user.id)
+            data == "download_registrations" && store.community.isAdmin(user.id) -> registrationExport(user.id)
+            data == "download_stats" && store.community.isAdmin(user.id) -> statisticsExport(user.id)
+            data == "admin_invite" && store.community.isAdmin(user.id) -> adminInvite(user.id)
             data.startsWith("game:") -> gameAction(user.id, message.messageId.toLong(), data)
         }
     }
 
     private fun remember(user: User) = store.community.saveProfile(PlayerProfile(user.id, user.firstName, user.lastName, user.userName))
     private fun enter(userId: Long, payload: String?) {
-        if (store.community.isApproved(userId) || userId in config.adminIds) {
+        if (store.community.isApproved(userId) || store.community.isAdmin(userId)) {
             val join = payload ?: store.community.pendingJoin(userId)
             if (join != null) {
                 val session = store.acceptInvite(join.removePrefix("join_"), userId)
@@ -149,7 +160,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         } else accessDenied(userId)
     }
     private fun requireAccess(userId: Long): Boolean {
-        if (store.community.isApproved(userId) || userId in config.adminIds) return true
+        if (store.community.isApproved(userId) || store.community.isAdmin(userId)) return true
         accessDenied(userId); return false
     }
     private fun accessDenied(userId: Long) {
@@ -204,7 +215,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         }
     }
     private fun broadcast(authorId: Long, text: String) {
-        val recipients=store.community.approvedUsers().filter { it !in config.adminIds }
+        val recipients=store.community.approvedUsers().filter { it !in store.community.adminIds() }
         recipients.forEach { id -> runCatching { BotHelper.sendText(client,id,text,parseMode=null) } }
         BotHelper.sendText(client,config.moderationChatId,Copy.text("broadcast_done", "count" to recipients.size),threadId=topics.broadcasts)
     }
@@ -231,12 +242,16 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val registered = store.community.isRegistered(userId)
         val action = if (registered) "cancel_preregister" else "preregister"
         val label = if (registered) Copy.text("tournament_cancel") else Copy.text("tournament_register")
-        val admin = if (userId in config.adminIds) "<tg-button type=\"callback_data\" data=\"download_registrations\">${Copy.text("admin_export_tournament", "count" to store.community.registrationCount())}</tg-button>" else ""
+        val admin = if (store.community.isAdmin(userId)) "<tg-button type=\"callback_data\" data=\"download_registrations\">${Copy.text("admin_export_tournament", "count" to store.community.registrationCount())}</tg-button>" else ""
         rich.sync(userId, 0, "<h3>${Copy.text("tournament_title")}</h3><p>${Copy.text("tournament_text", "date" to config.tournamentDate)}</p><p>${config.tournamentPrizes}</p><p>${if (registered) Copy.text("tournament_registered") else Copy.text("tournament_not_registered")}</p><tg-button-row><tg-button type=\"callback_data\" data=\"$action\">$label</tg-button>$admin<tg-button type=\"callback_data\" data=\"menu\">${Copy.text("to_menu")}</tg-button></tg-button-row>")
     }
     private fun adminPanel(userId: Long) {
-        if (userId !in config.adminIds) { BotHelper.sendText(client, userId, Copy.text("admin_denied")); return }
+        if (!store.community.isAdmin(userId)) { BotHelper.sendText(client, userId, Copy.text("admin_denied")); return }
         rich.sync(userId, 0, Copy.text("admin_panel"))
+    }
+    private fun adminInvite(userId: Long) {
+        val link="https://t.me/${config.botUsername}?start=admin_${store.community.createAdminInvite(userId)}"
+        BotHelper.sendText(client,userId,Copy.text("admin_invite_link", "link" to link))
     }
     private fun registrationExport(userId: Long? = null) = BotHelper.sendCsv(client, config.moderationChatId, "nmh-tournament-registrations.csv", store.community.registrationsCsv(), Copy.text("admin_export_tournament_caption", "count" to store.community.registrationCount()), topics.exports)
     private fun statisticsExport(userId: Long? = null) = BotHelper.sendCsv(client, config.moderationChatId, "nmh-audience-statistics.csv", store.community.audienceStatisticsCsv(), Copy.text("admin_export_stats_caption"), topics.exports)

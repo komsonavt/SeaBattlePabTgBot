@@ -43,6 +43,25 @@ class CommunityStore(private val db: Database) {
     fun saveForumTopic(key: String, threadId: Int) = db.connection().use { conn -> conn.prepareStatement("INSERT INTO forum_topics(topic_key,message_thread_id) VALUES (?,?) ON CONFLICT(topic_key) DO UPDATE SET message_thread_id=EXCLUDED.message_thread_id").use { ps ->
         ps.setString(1,key); ps.setInt(2,threadId); ps.executeUpdate()
     } }
+    fun bootstrapAdmins(ids: Set<Long>) = ids.forEach { addAdmin(it, null, "config") }
+    fun addAdmin(userId: Long, addedBy: Long?, source: String = "invite") = db.connection().use { conn -> conn.prepareStatement("INSERT INTO bot_admins(user_id,added_by,source) VALUES (?,?,?) ON CONFLICT(user_id) DO NOTHING").use { ps ->
+        ps.setLong(1,userId); if(addedBy == null) ps.setNull(2,java.sql.Types.BIGINT) else ps.setLong(2,addedBy); ps.setString(3,source); ps.executeUpdate()
+    } }
+    fun isAdmin(userId: Long): Boolean = db.connection().use { conn -> conn.prepareStatement("SELECT 1 FROM bot_admins WHERE user_id=?").use { ps -> ps.setLong(1,userId); ps.executeQuery().use { it.next() } } }
+    fun adminIds(): Set<Long> = db.connection().use { conn -> conn.createStatement().use { st -> st.executeQuery("SELECT user_id FROM bot_admins").use { rs -> buildSet { while(rs.next()) add(rs.getLong(1)) } } } }
+    fun createAdminInvite(creatorId: Long): String {
+        val id=UUID.randomUUID().toString().replace("-","")
+        db.connection().use { conn -> conn.prepareStatement("INSERT INTO admin_invites(invite_id,creator_id) VALUES (?,?)").use { ps -> ps.setString(1,id); ps.setLong(2,creatorId); ps.executeUpdate() } }
+        return id
+    }
+    fun claimAdminInvite(inviteId: String, userId: Long): Boolean = db.connection().use { conn ->
+        conn.autoCommit=false
+        try {
+            val claimed=conn.prepareStatement("UPDATE admin_invites SET claimed_by=?,claimed_at=NOW() WHERE invite_id=? AND claimed_by IS NULL RETURNING creator_id").use { ps -> ps.setLong(1,userId);ps.setString(2,inviteId);ps.executeQuery().use { it.next() } }
+            if(claimed) addAdmin(userId,null,"invite")
+            conn.commit(); claimed
+        } catch(e: Exception) { conn.rollback(); throw e }
+    }
     fun approvedUsers(): List<Long> = db.connection().use { conn -> conn.createStatement().use { st -> st.executeQuery("SELECT DISTINCT ON (user_id) user_id,status FROM access_requests ORDER BY user_id,created_at DESC").use { rs -> buildList { while(rs.next()) if(rs.getString(2)=="APPROVED") add(rs.getLong(1)) } } } }
     fun saveProfile(p: PlayerProfile) {
         db.connection().use { conn ->
