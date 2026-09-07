@@ -2,7 +2,7 @@
 
 Это файл для редакторской правки. Под каждым ключом расположен текст, который увидит пользователь. Ключи и конструкции в фигурных скобках (`{name}`, `{count}`, `{cell}`) не меняйте: бот подставляет в них данные.
 
-После правок запустите `python3 tools/import_copy_editor.py copy-for-editor.md copy.xml`. Скрипт обновит XML и сохранит исходный вариант в `copy.xml.bak`.
+После правок запустите `python3 tools/import_copy_editor.py seaBattleBot_text_for_editor.md copy.xml`. Скрипт обновит XML и сохранит исходный вариант в `copy.xml.bak`.
 
 ## welcome
 

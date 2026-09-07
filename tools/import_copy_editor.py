@@ -29,7 +29,7 @@ def read_editor_file(path: Path) -> dict[str, str]:
 
 def main() -> int:
     if len(sys.argv) != 3:
-        print("Использование: python3 tools/import_copy_editor.py copy-for-editor.md copy.xml")
+        print("Использование: python3 tools/import_copy_editor.py seaBattleBot_text_for_editor.md copy.xml")
         return 2
     editor, target = map(Path, sys.argv[1:])
     source = read_editor_file(editor)
