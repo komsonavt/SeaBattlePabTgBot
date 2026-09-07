@@ -4,7 +4,7 @@ import com.company.seabattle.db.Database
 import com.company.seabattle.game.escapeHtml
 import java.util.UUID
 
-enum class AccessStatus { DRAFT, PENDING, APPROVED, DECLINED }
+enum class AccessStatus { DRAFT, PENDING, APPROVED, DECLINED, BLOCKED }
 data class AccessRequest(val id: String, val userId: Long, val name: String?, val activity: String?, val status: AccessStatus, val payload: String?)
 
 data class PlayerProfile(val id: Long, val firstName: String, val lastName: String? = null, val username: String? = null) {
@@ -14,10 +14,10 @@ data class PlayerProfile(val id: Long, val firstName: String, val lastName: Stri
 data class RankingEntry(val place: Long, val profile: PlayerProfile, val games: Long, val wins: Long)
 
 class CommunityStore(private val db: Database) {
-    fun isApproved(userId: Long): Boolean = db.connection().use { conn -> conn.prepareStatement("SELECT 1 FROM access_requests WHERE user_id=? AND status='APPROVED'").use { ps -> ps.setLong(1,userId); ps.executeQuery().use { it.next() } } }
+    fun isApproved(userId: Long): Boolean = db.connection().use { conn -> conn.prepareStatement("SELECT status FROM access_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 1").use { ps -> ps.setLong(1,userId); ps.executeQuery().use { it.next() && it.getString(1)=="APPROVED" } } }
     fun request(userId: Long, payload: String?): AccessRequest {
         val existing = accessRequest(userId)
-        if (existing != null && existing.status in setOf(AccessStatus.DRAFT, AccessStatus.PENDING)) return existing
+        if (existing != null && existing.status in setOf(AccessStatus.DRAFT, AccessStatus.PENDING, AccessStatus.BLOCKED)) return existing
         val id = UUID.randomUUID().toString().replace("-", "")
         db.connection().use { conn -> conn.prepareStatement("INSERT INTO access_requests(id,user_id,status,payload) VALUES (?,?,'DRAFT',?)").use { ps -> ps.setString(1,id);ps.setLong(2,userId);ps.setString(3,payload);ps.executeUpdate() } }
         return AccessRequest(id,userId,null,null,AccessStatus.DRAFT,payload)
@@ -31,7 +31,19 @@ class CommunityStore(private val db: Database) {
     fun decideRequest(id: String, approved: Boolean, moderatorId: Long): AccessRequest? = db.connection().use { conn ->
         conn.prepareStatement("UPDATE access_requests SET status=?,moderator_id=?,decided_at=NOW() WHERE id=? AND status='PENDING' RETURNING id,user_id,name,activity,status,payload").use { ps -> ps.setString(1,if(approved) "APPROVED" else "DECLINED");ps.setLong(2,moderatorId);ps.setString(3,id);ps.executeQuery().use { rs -> if(rs.next()) AccessRequest(rs.getString(1),rs.getLong(2),rs.getString(3),rs.getString(4),AccessStatus.valueOf(rs.getString(5)),rs.getString(6)) else null } }
     }
-    fun approvedUsers(): List<Long> = db.connection().use { conn -> conn.createStatement().use { st -> st.executeQuery("SELECT DISTINCT user_id FROM access_requests WHERE status='APPROVED'").use { rs -> buildList { while(rs.next()) add(rs.getLong(1)) } } } }
+    fun blockRequest(id: String, moderatorId: Long): AccessRequest? = db.connection().use { conn ->
+        conn.prepareStatement("UPDATE access_requests SET status='BLOCKED',moderator_id=?,decided_at=NOW() WHERE id=? AND status IN ('DRAFT','PENDING','APPROVED','DECLINED') RETURNING id,user_id,name,activity,status,payload").use { ps ->
+            ps.setLong(1,moderatorId); ps.setString(2,id)
+            ps.executeQuery().use { rs -> if(rs.next()) AccessRequest(rs.getString(1),rs.getLong(2),rs.getString(3),rs.getString(4),AccessStatus.valueOf(rs.getString(5)),rs.getString(6)) else null }
+        }
+    }
+    fun forumTopic(key: String): Int? = db.connection().use { conn -> conn.prepareStatement("SELECT message_thread_id FROM forum_topics WHERE topic_key=?").use { ps ->
+        ps.setString(1,key); ps.executeQuery().use { rs -> if(rs.next()) rs.getInt(1) else null }
+    } }
+    fun saveForumTopic(key: String, threadId: Int) = db.connection().use { conn -> conn.prepareStatement("INSERT INTO forum_topics(topic_key,message_thread_id) VALUES (?,?) ON CONFLICT(topic_key) DO UPDATE SET message_thread_id=EXCLUDED.message_thread_id").use { ps ->
+        ps.setString(1,key); ps.setInt(2,threadId); ps.executeUpdate()
+    } }
+    fun approvedUsers(): List<Long> = db.connection().use { conn -> conn.createStatement().use { st -> st.executeQuery("SELECT DISTINCT ON (user_id) user_id,status FROM access_requests ORDER BY user_id,created_at DESC").use { rs -> buildList { while(rs.next()) if(rs.getString(2)=="APPROVED") add(rs.getLong(1)) } } } }
     fun saveProfile(p: PlayerProfile) {
         db.connection().use { conn ->
             conn.prepareStatement("""INSERT INTO user_profiles(user_id, first_name, last_name, username) VALUES (?,?,?,?)
@@ -88,6 +100,36 @@ class CommunityStore(private val db: Database) {
                 }
             }
         }
+    }
+    fun audienceStatisticsCsv(): String = db.connection().use { conn ->
+        conn.createStatement().use { st -> st.executeQuery("""
+            WITH known AS (
+                SELECT user_id FROM user_profiles UNION SELECT user_id FROM access_requests
+                UNION SELECT player1_id FROM games WHERE player1_id>0 UNION SELECT player2_id FROM games WHERE player2_id>0
+            ), access AS (SELECT DISTINCT ON (user_id) user_id,status,name,activity,created_at,decided_at FROM access_requests ORDER BY user_id,created_at DESC),
+            game_stats AS (SELECT user_id,
+                COUNT(*) FILTER (WHERE vs_computer) cpu_games,
+                COUNT(*) FILTER (WHERE NOT vs_computer AND player1_id=user_id) human_created,
+                COUNT(*) FILTER (WHERE NOT vs_computer) human_played,
+                COUNT(*) FILTER (WHERE NOT vs_computer AND finished) human_finished,
+                COUNT(*) FILTER (WHERE NOT vs_computer AND finished AND winner_id=user_id) human_wins
+                FROM (SELECT player1_id user_id,player1_id,vs_computer,finished,winner_id FROM games WHERE player1_id>0
+                      UNION ALL SELECT player2_id,player1_id,vs_computer,finished,winner_id FROM games WHERE player2_id>0) g GROUP BY user_id)
+            SELECT k.user_id,p.first_name,p.last_name,p.username,a.status,a.name,a.activity,a.created_at,a.decided_at,
+                COALESCE(g.cpu_games,0),COALESCE(g.human_created,0),COALESCE(g.human_played,0),COALESCE(g.human_finished,0),COALESCE(g.human_wins,0),
+                CASE WHEN t.user_id IS NULL THEN 'нет' ELSE 'да' END,t.registered_at,p.updated_at
+            FROM known k LEFT JOIN user_profiles p ON p.user_id=k.user_id LEFT JOIN access a ON a.user_id=k.user_id
+            LEFT JOIN game_stats g ON g.user_id=k.user_id LEFT JOIN tournament_preregistrations t ON t.user_id=k.user_id ORDER BY k.user_id
+        """.trimIndent()).use { rs ->
+            buildString {
+                append('\uFEFF').append("id,telegram_name,first_name,last_name,username,access_status,application_name,activity,application_created_at,moderated_at,cpu_games,human_games_created,human_games_played,human_games_finished,human_wins,tournament_registered,tournament_registered_at,profile_updated_at\r\n")
+                while(rs.next()) {
+                    val fullName=listOfNotNull(rs.getString(2),rs.getString(3)).filter { it.isNotBlank() }.joinToString(" ")
+                    val values=listOf(rs.getString(1),fullName,rs.getString(2),rs.getString(3),rs.getString(4),rs.getString(5),rs.getString(6),rs.getString(7),rs.getString(8),rs.getString(9),rs.getString(10),rs.getString(11),rs.getString(12),rs.getString(13),rs.getString(14),rs.getString(15),rs.getString(16),rs.getString(17))
+                    append(values.joinToString(",") { csvCell(it.orEmpty()) }).append("\r\n")
+                }
+            }
+        } }
     }
 
     /** Statistics are derived from committed games, so duplicate completion cannot increment counters. */

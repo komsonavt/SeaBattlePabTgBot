@@ -10,14 +10,14 @@ import java.util.Properties
  * Переменные:
  * - BOT_TOKEN          — токен бота от @BotFather
  * - BOT_USERNAME       — username бота без @
- * - CORPORATE_CHAT_ID  — id корпоративного чата, членство в котором проверяется
+ * - MODERATION_CHAT_ID — id супергруппы-форума, где бот создаёт рабочие темы
  * - ADMIN_IDS          — список id администраторов через запятую (опционально)
  * - GROUP_SIZE         — размер группы в турнире (по умолчанию 4)
  * - PLAYERS_PER_GROUP_ADVANCE — сколько игроков из группы проходит в плей-офф (по умолчанию 2)
  * - DB_URL             — JDBC URL PostgreSQL (jdbc:postgresql://host:port/dbname)
  * - DB_USER            — пользователь БД
  * - DB_PASSWORD        — пароль БД
- * - TURN_TIMEOUT_SECONDS — таймаут хода в секундах (по умолчанию 300 = 5 минут)
+ * - TURN_TIMEOUT_SECONDS — таймаут хода в секундах (фиксированно 180 в PvP)
  */
 data class BotConfig(
     val botToken: String,

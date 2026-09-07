@@ -12,6 +12,8 @@ import org.telegram.telegrambots.meta.api.objects.message.Message
 import org.telegram.telegrambots.meta.api.objects.InputFile
 import org.telegram.telegrambots.meta.api.methods.send.SendDocument
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto
+import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands
+import org.telegram.telegrambots.meta.api.objects.commands.BotCommand
 import java.io.ByteArrayInputStream
 
 /**
@@ -132,6 +134,11 @@ object BotHelper {
         } catch (e: Exception) {
             // игнорируем
         }
+    }
+
+    /** Registers descriptions shown by Telegram next to the bot commands. */
+    fun registerCommands(client: TelegramClient, commands: List<Pair<String, String>>) {
+        client.execute(SetMyCommands(commands.map { (command, description) -> BotCommand(command, description) }))
     }
 
     /** Построить простую inline-клавиатуру из списка кнопок (по строкам). */

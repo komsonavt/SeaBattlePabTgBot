@@ -14,6 +14,7 @@ import org.telegram.telegrambots.client.okhttp.OkHttpTelegramClient
 import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateConsumer
 import org.telegram.telegrambots.meta.api.objects.Update
 import org.telegram.telegrambots.meta.api.objects.User
+import org.telegram.telegrambots.meta.api.methods.groupadministration.BanChatMember
 import org.telegram.telegrambots.meta.generics.TelegramClient
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -25,11 +26,25 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
     val client: TelegramClient = OkHttpTelegramClient(config.botToken)
     private val cards = GameCards(store, RichMessageClient(config.botToken), RichBoardRenderer())
     private val rich = RichMessageClient(config.botToken)
+    private lateinit var topics: ForumTopics
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "GameDeadlineScanner").apply { isDaemon = true }
     }
 
     init {
+        topics = ForumWorkspace.ensure(client, config, store.community)
+        if ("moderation" in topics.created) BotHelper.sendText(client, config.moderationChatId, Copy.text("admin_topic_moderation"), threadId = topics.moderation)
+        if ("exports" in topics.created) BotHelper.sendText(client, config.moderationChatId, Copy.text("admin_topic_exports"), replyMarkup = BotHelper.keyboard(listOf(listOf(
+            Copy.text("admin_export_stats") to "mod:stats", Copy.text("admin_export_tournament") to "mod:registrations"
+        ))), threadId = topics.exports)
+        if ("broadcasts" in topics.created) BotHelper.sendText(client, config.moderationChatId, Copy.text("admin_topic_broadcasts"), threadId = topics.broadcasts)
+        runCatching { BotHelper.registerCommands(client, listOf(
+            "start" to Copy.text("command_start"), "menu" to Copy.text("command_menu"),
+            "play_cpu" to Copy.text("command_play_cpu"), "play_friend" to Copy.text("command_play_friend"),
+            "mygames" to Copy.text("command_mygames"), "leaderboard" to Copy.text("command_leaderboard"),
+            "tournament" to Copy.text("command_tournament"), "help" to Copy.text("command_help"),
+            "admin" to Copy.text("command_admin")
+        )) }.onFailure { println("Не удалось обновить список команд: ${it.javaClass.simpleName}") }
         store.sessionsToSync().forEach { cards.request(it, true) }
         scheduler.scheduleWithFixedDelay(::tick, 1, 5, TimeUnit.SECONDS)
     }
@@ -47,8 +62,12 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val message = update.message
         val user = message.from
         if (message.chatId == config.moderationChatId) {
-            if (user.id in config.adminIds && config.broadcastsTopicId != null && message.messageThreadId == config.broadcastsTopicId && !message.text.startsWith("/")) {
-                broadcast(user.id, message.text)
+            if (user.id in config.adminIds) {
+                when (message.text.trim().lowercase()) {
+                    "/export_stats" -> statisticsExport()
+                    "/export_tournament" -> registrationExport()
+                    else -> if (message.messageThreadId == topics.broadcasts && !message.text.startsWith("/")) broadcast(user.id, message.text)
+                }
             }
             return
         }
@@ -72,6 +91,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
             "/mygames" -> resume(user.id)
             "/surrender", "сдаться" -> askSurrender(user.id)
             "/help" -> help(user.id)
+            "/admin" -> adminPanel(user.id)
             else -> menu(user.id)
         }
     }
@@ -83,7 +103,11 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val data = query.data ?: return
         if (message.chatId == config.moderationChatId) {
             BotHelper.answerCallback(client, query.id)
-            if (user.id in config.adminIds && data.startsWith("mod:")) moderate(user.id, data)
+            if (user.id in config.adminIds) when (data) {
+                "mod:stats" -> statisticsExport()
+                "mod:registrations" -> registrationExport()
+                else -> if (data.startsWith("mod:")) moderate(user.id, data)
+            }
             return
         }
         if (message.chatId != user.id) return
@@ -101,6 +125,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
             data == "cancel_invite" -> { store.cancelInvite(user.id); menu(user.id) }
             data == "resume" -> resume(user.id)
             data == "download_registrations" && user.id in config.adminIds -> registrationExport(user.id)
+            data == "download_stats" && user.id in config.adminIds -> statisticsExport(user.id)
             data.startsWith("game:") -> gameAction(user.id, message.messageId.toLong(), data)
         }
     }
@@ -128,7 +153,8 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         accessDenied(userId); return false
     }
     private fun accessDenied(userId: Long) {
-        rich.sync(userId, 0, Copy.text("access_denied"))
+        val text = if (store.community.accessRequest(userId)?.status == com.company.seabattle.state.AccessStatus.BLOCKED) Copy.text("access_blocked") else Copy.text("access_denied")
+        rich.sync(userId, 0, text)
     }
     private fun beginAccessRequest(userId: Long) {
         val request = store.community.request(userId, store.community.pendingJoin(userId))
@@ -151,23 +177,36 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         if (text.length !in 2..120) { BotHelper.sendText(client,userId,Copy.text("access_activity_invalid")); return true }
         val submitted = store.community.submitRequest(userId,text) ?: return true
         val body = Copy.text("moderation_request", "name" to submitted.name, "activity" to submitted.activity, "id" to submitted.userId)
-        val keyboard = BotHelper.keyboard(listOf(listOf(Copy.text("moderation_approve") to "mod:approve:${submitted.id}", Copy.text("moderation_decline") to "mod:decline:${submitted.id}")))
-        BotHelper.sendText(client,config.moderationChatId,body,replyMarkup=keyboard,threadId=config.moderationTopicId)
+        val keyboard = BotHelper.keyboard(listOf(listOf(
+            Copy.text("moderation_approve") to "mod:approve:${submitted.id}",
+            Copy.text("moderation_decline") to "mod:decline:${submitted.id}",
+            Copy.text("moderation_block") to "mod:block:${submitted.id}"
+        )))
+        BotHelper.sendText(client,config.moderationChatId,body,replyMarkup=keyboard,threadId=topics.moderation)
         BotHelper.sendText(client,userId,Copy.text("access_sent"))
         return true
     }
     private fun moderate(moderatorId: Long, data: String) {
         val parts=data.split(":")
         if(parts.size!=3) return
-        val approved=parts[1]=="approve"
-        val request=store.community.decideRequest(parts[2],approved,moderatorId) ?: return
-        BotHelper.sendText(client,request.userId,if(approved) Copy.text("access_approved") else Copy.text("access_declined"))
-        if(approved) enter(request.userId,request.payload)
+        when (parts[1]) {
+            "approve", "decline" -> {
+                val approved=parts[1]=="approve"
+                val request=store.community.decideRequest(parts[2],approved,moderatorId) ?: return
+                BotHelper.sendText(client,request.userId,if(approved) Copy.text("access_approved") else Copy.text("access_declined"))
+                if(approved) enter(request.userId,request.payload)
+            }
+            "block" -> {
+                val request=store.community.blockRequest(parts[2],moderatorId) ?: return
+                runCatching { client.execute(BanChatMember(config.moderationChatId.toString(), request.userId)) }
+                BotHelper.sendText(client,request.userId,Copy.text("access_blocked"))
+            }
+        }
     }
     private fun broadcast(authorId: Long, text: String) {
         val recipients=store.community.approvedUsers().filter { it !in config.adminIds }
         recipients.forEach { id -> runCatching { BotHelper.sendText(client,id,text,parseMode=null) } }
-        BotHelper.sendText(client,config.moderationChatId,Copy.text("broadcast_done", "count" to recipients.size),threadId=config.broadcastsTopicId)
+        BotHelper.sendText(client,config.moderationChatId,Copy.text("broadcast_done", "count" to recipients.size),threadId=topics.broadcasts)
     }
 
     private fun menu(userId: Long) {
@@ -192,10 +231,15 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val registered = store.community.isRegistered(userId)
         val action = if (registered) "cancel_preregister" else "preregister"
         val label = if (registered) Copy.text("tournament_cancel") else Copy.text("tournament_register")
-        val admin = if (userId in config.adminIds) "<tg-button type=\"callback_data\" data=\"download_registrations\">Заявки: ${store.community.registrationCount()}</tg-button>" else ""
+        val admin = if (userId in config.adminIds) "<tg-button type=\"callback_data\" data=\"download_registrations\">${Copy.text("admin_export_tournament", "count" to store.community.registrationCount())}</tg-button>" else ""
         rich.sync(userId, 0, "<h3>${Copy.text("tournament_title")}</h3><p>${Copy.text("tournament_text", "date" to config.tournamentDate)}</p><p>${config.tournamentPrizes}</p><p>${if (registered) Copy.text("tournament_registered") else Copy.text("tournament_not_registered")}</p><tg-button-row><tg-button type=\"callback_data\" data=\"$action\">$label</tg-button>$admin<tg-button type=\"callback_data\" data=\"menu\">${Copy.text("to_menu")}</tg-button></tg-button-row>")
     }
-    private fun registrationExport(userId: Long) = BotHelper.sendCsv(client, config.moderationChatId, "nmh-tournament-registrations.csv", store.community.registrationsCsv(), "Заявок: ${store.community.registrationCount()}", config.exportsTopicId)
+    private fun adminPanel(userId: Long) {
+        if (userId !in config.adminIds) { BotHelper.sendText(client, userId, Copy.text("admin_denied")); return }
+        rich.sync(userId, 0, Copy.text("admin_panel"))
+    }
+    private fun registrationExport(userId: Long? = null) = BotHelper.sendCsv(client, config.moderationChatId, "nmh-tournament-registrations.csv", store.community.registrationsCsv(), Copy.text("admin_export_tournament_caption", "count" to store.community.registrationCount()), topics.exports)
+    private fun statisticsExport(userId: Long? = null) = BotHelper.sendCsv(client, config.moderationChatId, "nmh-audience-statistics.csv", store.community.audienceStatisticsCsv(), Copy.text("admin_export_stats_caption"), topics.exports)
     private fun resume(userId: Long) { store.getSessionByPlayer(userId)?.let { cards.reopen(it, userId) } ?: BotHelper.sendText(client, userId, Copy.text("no_active_game")) }
     private fun busy(userId: Long): Boolean {
         if (store.getSessionByPlayer(userId) == null) return false

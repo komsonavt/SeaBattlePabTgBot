@@ -103,6 +103,10 @@ class Database(
                 id VARCHAR(32) PRIMARY KEY, author_id BIGINT NOT NULL, body TEXT NOT NULL,
                 status VARCHAR(16) NOT NULL DEFAULT 'DRAFT', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
+            CREATE TABLE IF NOT EXISTS forum_topics (
+                topic_key VARCHAR(32) PRIMARY KEY, message_thread_id INT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
         """.trimIndent()
         private val SCHEMA_SQL = """
             -- Игровые сессии (все режимы)
