@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import shutil
 import sys
+import re
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -36,17 +37,21 @@ def main() -> int:
     root = ET.parse(target).getroot()
     keys = [element.tag for element in root]
     missing = [key for key in keys if key not in source]
-    unknown = [key for key in source if key not in keys]
-    if missing or unknown:
+    invalid = [key for key in source if not re.fullmatch(r"[a-z][a-z0-9_]*", key)]
+    if missing or invalid:
         if missing:
             print("Не найдены ключи: " + ", ".join(missing))
-        if unknown:
-            print("Неизвестные ключи: " + ", ".join(unknown))
+        if invalid:
+            print("Недопустимые новые ключи: " + ", ".join(invalid))
         return 1
     backup = target.with_suffix(target.suffix + ".bak")
     shutil.copy2(target, backup)
     for element in root:
         element.text = source[element.tag]
+    for key, value in source.items():
+        if key not in keys:
+            element = ET.SubElement(root, key)
+            element.text = value
     ET.indent(ET.ElementTree(root), space="  ")
     ET.ElementTree(root).write(target, encoding="utf-8", xml_declaration=True)
     print(f"Готово: {target}. Резервная копия: {backup}")
