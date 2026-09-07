@@ -45,6 +45,11 @@ object Copy {
                 save()
                 key = match.groupValues[1]
                 body.clear()
+            } else if (line.startsWith("# ")) {
+                // Editor-only headings (for example "Новые записи") never belong to a copy value.
+                save()
+                key = null
+                body.clear()
             } else if (key != null) {
                 body.appendLine(line)
             }
