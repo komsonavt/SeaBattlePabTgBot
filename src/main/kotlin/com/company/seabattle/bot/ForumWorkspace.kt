@@ -7,7 +7,7 @@ import org.telegram.telegrambots.meta.api.methods.forum.CreateForumTopic
 import org.telegram.telegrambots.meta.api.objects.forum.ForumTopic
 import org.telegram.telegrambots.meta.generics.TelegramClient
 
-data class ForumTopics(val moderation: Int, val exports: Int, val broadcasts: Int, val created: Set<String>)
+data class ForumTopics(val moderation: Int, val exports: Int, val broadcasts: Int, val guide: Int, val created: Set<String>)
 
 /** Creates the bot's working topics once and retains their Telegram IDs in PostgreSQL. */
 object ForumWorkspace {
@@ -22,7 +22,8 @@ object ForumWorkspace {
         return ForumTopics(
             topic("moderation", "🛟 Заявки в игру", null),
             topic("exports", "📊 Выгрузки и статистика", null),
-            topic("broadcasts", "📣 Рассылки", null), createdKeys
+            topic("broadcasts", "📣 Рассылки", null),
+            topic("guide", "📚 Команды и возможности", null), createdKeys
         )
     }
 }

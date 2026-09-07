@@ -66,6 +66,15 @@ object BotHelper {
         client.execute(request)
     }
 
+    /** Sends a bundled document, for example the current guide for moderators. */
+    fun sendDocumentResource(client: TelegramClient, chatId: Long, resource: String, caption: String, threadId: Int? = null) {
+        val bytes = requireNotNull(BotHelper::class.java.getResourceAsStream(resource)) { "Resource not found: $resource" }.use { it.readBytes() }
+        val request = SendDocument(chatId.toString(), InputFile(ByteArrayInputStream(bytes), resource.substringAfterLast('/')))
+        request.caption = caption
+        if (threadId != null) request.messageThreadId = threadId
+        client.execute(request)
+    }
+
     /** Sends a bundled visual with a caption; callers can fall back to text if Telegram rejects it. */
     fun sendPhotoResource(client: TelegramClient, chatId: Long, resource: String, caption: String) {
         val bytes = requireNotNull(BotHelper::class.java.getResourceAsStream(resource)) { "Resource not found: $resource" }.use { it.readBytes() }

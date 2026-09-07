@@ -71,6 +71,10 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         if ("moderation" in ready.created) BotHelper.sendText(client,chatId,Copy.text("admin_topic_moderation"),threadId=ready.moderation)
         if ("exports" in ready.created) BotHelper.sendText(client,chatId,Copy.text("admin_topic_exports"),replyMarkup=BotHelper.keyboard(listOf(listOf(Copy.text("admin_export_stats") to "mod:stats",Copy.text("admin_export_tournament") to "mod:registrations"))),threadId=ready.exports)
         if ("broadcasts" in ready.created) BotHelper.sendText(client,chatId,Copy.text("admin_topic_broadcasts"),threadId=ready.broadcasts)
+        if ("guide" in ready.created) {
+            BotHelper.sendText(client,chatId,Copy.text("admin_topic_guide"),threadId=ready.guide)
+            BotHelper.sendDocumentResource(client,chatId,"/README.md",Copy.text("admin_topic_guide_file"),ready.guide)
+        }
     }
 
     private fun onMessage(update: Update) {
