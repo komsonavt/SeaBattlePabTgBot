@@ -126,7 +126,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
                 "mod:stats" -> statisticsExport(user.id)
                 "mod:registrations" -> registrationExport(user.id)
                 else -> when {
-                    data.startsWith("mod:") -> moderate(user.id, data)
+                    data.startsWith("mod:") -> moderate(user.id, data, message.chatId, message.messageId.toLong())
                     data.startsWith("broadcast:send:") -> sendBroadcast(user.id,data.removePrefix("broadcast:send:"))
                     data.startsWith("broadcast:cancel:") -> cancelBroadcast(data.removePrefix("broadcast:cancel:"))
                 }
@@ -203,17 +203,17 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         if (text.length !in 2..120) { BotHelper.sendText(client,userId,Copy.text("access_activity_invalid")); return true }
         val submitted = store.community.submitRequest(userId,text) ?: return true
         val body = Copy.text("moderation_request", "name" to submitted.name, "activity" to submitted.activity, "id" to submitted.userId)
-        val keyboard = BotHelper.keyboard(listOf(listOf(
-            Copy.text("moderation_approve") to "mod:approve:${submitted.id}",
-            Copy.text("moderation_decline") to "mod:decline:${submitted.id}",
-            Copy.text("moderation_block") to "mod:block:${submitted.id}"
-        )))
+        val keyboard = BotHelper.keyboard(listOf(
+            listOf(Copy.text("moderation_approve") to "mod:approve:${submitted.id}"),
+            listOf(Copy.text("moderation_decline") to "mod:decline:${submitted.id}"),
+            listOf(Copy.text("moderation_block") to "mod:block:${submitted.id}")
+        ))
         val chatId=store.community.workspaceChatId() ?: return true
         BotHelper.sendText(client,chatId,body,replyMarkup=keyboard,threadId=topics?.moderation)
         BotHelper.sendText(client,userId,Copy.text("access_sent"))
         return true
     }
-    private fun moderate(moderatorId: Long, data: String) {
+    private fun moderate(moderatorId: Long, data: String, chatId: Long, messageId: Long) {
         val parts=data.split(":")
         if(parts.size!=3) return
         when (parts[1]) {
@@ -222,11 +222,17 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
                 val request=store.community.decideRequest(parts[2],approved,moderatorId) ?: return
                 BotHelper.sendText(client,request.userId,if(approved) Copy.text("access_approved") else Copy.text("access_declined"))
                 if(approved) enter(request.userId,request.payload)
+                val status=if(approved) Copy.text("moderation_status_approved") else Copy.text("moderation_status_declined")
+                val keyboard=BotHelper.keyboard(listOf(listOf(Copy.text("moderation_block") to "mod:block:${request.id}")))
+                val card=Copy.text("moderation_request", "name" to request.name, "activity" to request.activity, "id" to request.userId)
+                BotHelper.editText(client,chatId,messageId,"$card\n\n$status",replyMarkup=keyboard)
             }
             "block" -> {
                 val request=store.community.blockRequest(parts[2],moderatorId) ?: return
                 store.community.workspaceChatId()?.let { chatId -> runCatching { client.execute(BanChatMember(chatId.toString(), request.userId)) } }
                 BotHelper.sendText(client,request.userId,Copy.text("access_blocked"))
+                val card=Copy.text("moderation_request", "name" to request.name, "activity" to request.activity, "id" to request.userId)
+                BotHelper.editText(client,chatId,messageId,"$card\n\n${Copy.text("moderation_status_blocked")}",replyMarkup=BotHelper.keyboard(emptyList()))
             }
         }
     }
