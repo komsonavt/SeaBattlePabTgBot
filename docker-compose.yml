@@ -24,7 +24,7 @@ services:
     container_name: seabattle-bot
     restart: unless-stopped
     volumes:
-      - ${BRAND_EMOJI_HOST_FILE:-./brand-emoji.example.json}:/app/brand-emoji.json:ro
+      - ${EMOJI_HOST_FILE:-./emoji.xml}:/app/emoji.xml:ro
       - ${BOT_CONFIG_HOST_FILE:-./bot.properties}:/app/config/bot.properties:ro
       - ${COPY_HOST_FILE:-./copy.xml}:/app/copy.xml:ro
     depends_on:
@@ -46,7 +46,7 @@ services:
       DB_USER: ${POSTGRES_USER:-seabattle}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-seabattle}
       TURN_TIMEOUT_SECONDS: ${TURN_TIMEOUT_SECONDS:-180}
-      BRAND_EMOJI_FILE: /app/brand-emoji.json
+      EMOJI_FILE: /app/emoji.xml
       BOT_CONFIG_FILE: /app/config/bot.properties
       COPY_FILE: /app/copy.xml
 

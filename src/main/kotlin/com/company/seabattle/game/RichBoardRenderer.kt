@@ -3,6 +3,7 @@ package com.company.seabattle.game
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.company.seabattle.copy.Copy
 import java.nio.file.Path
+import javax.xml.parsers.DocumentBuilderFactory
 
 data class BrandEmoji(val id: String? = null, val alt: String) {
     init {
@@ -23,13 +24,23 @@ class BoardTheme(private val roles: Map<String, BrandEmoji>) {
     }).html()
     companion object {
         private val defaults = mapOf("sea" to "🌊", "ship" to "🚢", "miss" to "💥", "hit" to "💣", "sunk" to "☠️")
-        fun load(path: String? = System.getenv("BRAND_EMOJI_FILE")): BoardTheme {
+        fun load(path: String? = System.getenv("EMOJI_FILE") ?: System.getenv("BRAND_EMOJI_FILE")): BoardTheme {
             if (path.isNullOrBlank()) return BoardTheme(defaults.mapValues { BrandEmoji(alt = it.value) })
-            val json = jacksonObjectMapper().readTree(Path.of(path).toFile())
-            return BoardTheme(defaults.mapValues { (role, _) ->
-                val item = requireNotNull(json[role]) { "Missing emoji role: $role" }
-                BrandEmoji(item["id"]?.takeUnless { it.isNull }?.asText(), item["alt"]?.asText().orEmpty())
-            })
+            val file = Path.of(path).toFile()
+            val configured = if (path.lowercase().endsWith(".xml")) {
+                val root = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file).documentElement
+                defaults.keys.associateWith { key ->
+                    val node = requireNotNull(root.getElementsByTagName(key).item(0)) { "Missing emoji role: $key" } as org.w3c.dom.Element
+                    BrandEmoji(node.getAttribute("id").ifBlank { null }, node.getAttribute("alt").ifBlank { defaults.getValue(key) })
+                }
+            } else {
+                val json = jacksonObjectMapper().readTree(file)
+                defaults.keys.associateWith { key ->
+                    val item = requireNotNull(json[key]) { "Missing emoji role: $key" }
+                    BrandEmoji(item["id"]?.takeUnless { it.isNull }?.asText(), item["alt"]?.asText().orEmpty())
+                }
+            }
+            return BoardTheme(configured)
         }
     }
 }

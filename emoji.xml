@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Файл оформления поля. Вставьте в id числовой custom_emoji_id из Telegram.
+  alt — запасной обычный эмодзи, который увидит пользователь, если ID пока пустой.
+-->
+<emoji>
+  <sea id="" alt="🌊" />
+  <ship id="" alt="🚢" />
+  <miss id="" alt="💥" />
+  <hit id="" alt="💣" />
+  <sunk id="" alt="☠️" />
+</emoji>
