@@ -72,6 +72,24 @@ class CommunityStore(private val db: Database) {
             conn.commit(); claimed
         } catch(e: Exception) { conn.rollback(); throw e }
     }
+    fun audit(actorId: Long, action: String) = db.connection().use { conn -> conn.prepareStatement("INSERT INTO admin_audit(actor_id,action) VALUES (?,?)").use { ps -> ps.setLong(1,actorId);ps.setString(2,action);ps.executeUpdate() } }
+    fun adminAuditCsv(): String = db.connection().use { conn -> conn.createStatement().use { st ->
+        st.executeQuery("SELECT a.created_at,a.action,a.actor_id,p.first_name,p.last_name,p.username FROM admin_audit a LEFT JOIN user_profiles p ON p.user_id=a.actor_id ORDER BY a.created_at DESC").use { rs -> buildString {
+            append('\uFEFF').append("created_at,action,actor_id,first_name,last_name,username\r\n")
+            while(rs.next()) append((1..6).joinToString(",") { csvCell(rs.getString(it).orEmpty()) }).append("\r\n")
+        } }
+    } }
+    /** Removes editable profile data and enrolments; completed games keep anonymous technical IDs for result integrity. */
+    fun deleteProfile(userId: Long) = db.connection().use { conn ->
+        conn.autoCommit=false
+        try {
+            listOf("DELETE FROM tournament_preregistrations WHERE user_id=?", "DELETE FROM pending_joins WHERE user_id=?", "DELETE FROM bot_admins WHERE user_id=?", "DELETE FROM user_profiles WHERE user_id=?").forEach { sql ->
+                conn.prepareStatement(sql).use { ps -> ps.setLong(1,userId);ps.executeUpdate() }
+            }
+            conn.prepareStatement("UPDATE access_requests SET name=NULL,activity=NULL,payload=NULL WHERE user_id=?").use { ps -> ps.setLong(1,userId);ps.executeUpdate() }
+            conn.commit()
+        } catch(e: Exception) { conn.rollback();throw e }
+    }
     fun approvedUsers(): List<Long> = db.connection().use { conn -> conn.createStatement().use { st -> st.executeQuery("SELECT DISTINCT ON (user_id) user_id,status FROM access_requests ORDER BY user_id,created_at DESC").use { rs -> buildList { while(rs.next()) if(rs.getString(2)=="APPROVED") add(rs.getLong(1)) } } } }
     fun saveProfile(p: PlayerProfile) {
         db.connection().use { conn ->

@@ -40,7 +40,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
             "play_cpu" to Copy.text("command_play_cpu"), "play_friend" to Copy.text("command_play_friend"),
             "mygames" to Copy.text("command_mygames"), "leaderboard" to Copy.text("command_leaderboard"),
             "tournament" to Copy.text("command_tournament"), "help" to Copy.text("command_help"),
-            "admin" to Copy.text("command_admin")
+            "admin" to Copy.text("command_admin"), "delete_me" to Copy.text("command_delete_me")
         )) }.onFailure { println("Не удалось обновить список команд: ${it.javaClass.simpleName}") }
         store.sessionsToSync().forEach { cards.request(it, true) }
         scheduler.scheduleWithFixedDelay(::tick, 1, 5, TimeUnit.SECONDS)
@@ -79,8 +79,9 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         if (message.chatId == store.community.workspaceChatId()) {
             if (store.community.isAdmin(user.id)) {
                 when (message.text.trim().lowercase()) {
-                    "/export_stats" -> statisticsExport()
-                    "/export_tournament" -> registrationExport()
+                    "/export_stats" -> statisticsExport(user.id)
+                    "/export_tournament" -> registrationExport(user.id)
+                    "/export_audit" -> auditExport(user.id)
                     else -> if (message.messageThreadId == topics?.broadcasts && !message.text.startsWith("/")) broadcast(user.id, message.text)
                 }
             }
@@ -110,6 +111,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
             "/surrender", "сдаться" -> askSurrender(user.id)
             "/help" -> help(user.id)
             "/admin" -> adminPanel(user.id)
+            "/delete_me" -> deleteProfilePrompt(user.id)
             else -> menu(user.id)
         }
     }
@@ -122,8 +124,8 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         if (message.chatId == store.community.workspaceChatId()) {
             BotHelper.answerCallback(client, query.id)
             if (store.community.isAdmin(user.id)) when (data) {
-                "mod:stats" -> statisticsExport()
-                "mod:registrations" -> registrationExport()
+                "mod:stats" -> statisticsExport(user.id)
+                "mod:registrations" -> registrationExport(user.id)
                 else -> if (data.startsWith("mod:")) moderate(user.id, data)
             }
             return
@@ -145,6 +147,8 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
             data == "download_registrations" && store.community.isAdmin(user.id) -> registrationExport(user.id)
             data == "download_stats" && store.community.isAdmin(user.id) -> statisticsExport(user.id)
             data == "admin_invite" && store.community.isAdmin(user.id) -> adminInvite(user.id)
+            data == "delete_profile_confirm" -> { store.community.deleteProfile(user.id); BotHelper.sendText(client,user.id,Copy.text("profile_deleted")) }
+            data == "delete_profile_cancel" -> menu(user.id)
             data.startsWith("game:") -> gameAction(user.id, message.messageId.toLong(), data)
         }
     }
@@ -262,8 +266,10 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val link="https://t.me/${config.botUsername}?start=admin_${store.community.createAdminInvite(userId)}"
         BotHelper.sendText(client,userId,Copy.text("admin_invite_link", "link" to link))
     }
-    private fun registrationExport(userId: Long? = null) { val chatId=store.community.workspaceChatId() ?: return; BotHelper.sendCsv(client, chatId, "nmh-tournament-registrations.csv", store.community.registrationsCsv(), Copy.text("admin_export_tournament_caption", "count" to store.community.registrationCount()), topics?.exports) }
-    private fun statisticsExport(userId: Long? = null) { val chatId=store.community.workspaceChatId() ?: return; BotHelper.sendCsv(client, chatId, "nmh-audience-statistics.csv", store.community.audienceStatisticsCsv(), Copy.text("admin_export_stats_caption"), topics?.exports) }
+    private fun deleteProfilePrompt(userId: Long) = BotHelper.sendText(client,userId,Copy.text("profile_delete_confirm"),replyMarkup=BotHelper.keyboard(listOf(listOf(Copy.text("profile_delete_yes") to "delete_profile_confirm",Copy.text("profile_delete_no") to "delete_profile_cancel"))))
+    private fun registrationExport(userId: Long? = null) { val chatId=store.community.workspaceChatId() ?: return; userId?.let { store.community.audit(it,"export_tournament") }; BotHelper.sendCsv(client, chatId, "nmh-tournament-registrations.csv", store.community.registrationsCsv(), Copy.text("admin_export_tournament_caption", "count" to store.community.registrationCount()), topics?.exports) }
+    private fun statisticsExport(userId: Long? = null) { val chatId=store.community.workspaceChatId() ?: return; userId?.let { store.community.audit(it,"export_statistics") }; BotHelper.sendCsv(client, chatId, "nmh-audience-statistics.csv", store.community.audienceStatisticsCsv(), Copy.text("admin_export_stats_caption"), topics?.exports) }
+    private fun auditExport(userId: Long) { val chatId=store.community.workspaceChatId() ?: return; store.community.audit(userId,"export_audit"); BotHelper.sendCsv(client,chatId,"nmh-admin-audit.csv",store.community.adminAuditCsv(),Copy.text("admin_export_audit_caption"),topics?.exports) }
     private fun resume(userId: Long) { store.getSessionByPlayer(userId)?.let { cards.reopen(it, userId) } ?: BotHelper.sendText(client, userId, Copy.text("no_active_game")) }
     private fun busy(userId: Long): Boolean {
         if (store.getSessionByPlayer(userId) == null) return false

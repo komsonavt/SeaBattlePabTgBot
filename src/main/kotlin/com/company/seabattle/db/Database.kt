@@ -119,6 +119,10 @@ class Database(
                 workspace_key VARCHAR(32) PRIMARY KEY, chat_id BIGINT NOT NULL,
                 activated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
+            CREATE TABLE IF NOT EXISTS admin_audit (
+                id BIGSERIAL PRIMARY KEY, actor_id BIGINT NOT NULL, action VARCHAR(64) NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
         """.trimIndent()
         private val SCHEMA_SQL = """
             -- Игровые сессии (все режимы)
