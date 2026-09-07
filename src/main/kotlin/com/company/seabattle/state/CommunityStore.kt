@@ -102,7 +102,19 @@ class CommunityStore(private val db: Database) {
     } }
     fun finishBroadcastDraft(id: String, sent: Boolean) = db.connection().use { conn -> conn.prepareStatement("UPDATE broadcast_drafts SET status=? WHERE id=? AND status='SENDING'").use { ps -> ps.setString(1,if(sent) "SENT" else "FAILED");ps.setString(2,id);ps.executeUpdate() } }
     fun cancelBroadcastDraft(id: String): Boolean = db.connection().use { conn -> conn.prepareStatement("UPDATE broadcast_drafts SET status='CANCELLED' WHERE id=? AND status='DRAFT'").use { ps -> ps.setString(1,id);ps.executeUpdate()==1 } }
-    fun approvedUsers(): List<Long> = db.connection().use { conn -> conn.createStatement().use { st -> st.executeQuery("SELECT DISTINCT ON (user_id) user_id,status FROM access_requests ORDER BY user_id,created_at DESC").use { rs -> buildList { while(rs.next()) if(rs.getString(2)=="APPROVED") add(rs.getLong(1)) } } } }
+    /** Everyone known to the bot, including people who played before the access workflow existed. */
+    fun broadcastRecipients(): List<Long> = db.connection().use { conn -> conn.createStatement().use { st -> st.executeQuery("""
+        WITH known AS (
+            SELECT user_id FROM user_profiles
+            UNION SELECT user_id FROM access_requests
+            UNION SELECT user_id FROM tournament_preregistrations
+            UNION SELECT player1_id FROM games WHERE player1_id>0
+            UNION SELECT player2_id FROM games WHERE player2_id>0
+        ), latest_access AS (
+            SELECT DISTINCT ON (user_id) user_id,status FROM access_requests ORDER BY user_id,created_at DESC
+        ) SELECT k.user_id FROM known k LEFT JOIN latest_access a USING(user_id)
+          WHERE COALESCE(a.status,'') <> 'BLOCKED' ORDER BY k.user_id
+    """.trimIndent()).use { rs -> buildList { while(rs.next()) add(rs.getLong(1)) } } } }
     fun saveProfile(p: PlayerProfile) {
         db.connection().use { conn ->
             conn.prepareStatement("""INSERT INTO user_profiles(user_id, first_name, last_name, username) VALUES (?,?,?,?)

@@ -35,13 +35,8 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
     init {
         store.community.bootstrapAdmins(config.adminIds)
         store.community.workspaceChatId()?.let(::activateForum)
-        runCatching { BotHelper.registerCommands(client, listOf(
-            "start" to Copy.text("command_start"), "menu" to Copy.text("command_menu"),
-            "play_cpu" to Copy.text("command_play_cpu"), "play_friend" to Copy.text("command_play_friend"),
-            "mygames" to Copy.text("command_mygames"), "leaderboard" to Copy.text("command_leaderboard"),
-            "tournament" to Copy.text("command_tournament"), "help" to Copy.text("command_help"),
-            "admin" to Copy.text("command_admin")
-        )) }.onFailure { println("Не удалось обновить список команд: ${it.javaClass.simpleName}") }
+        runCatching { BotHelper.registerCommands(client, listOf("start" to Copy.text("command_start"))) }
+            .onFailure { println("Не удалось обновить список команд: ${it.javaClass.simpleName}") }
         store.sessionsToSync().forEach { cards.request(it, true) }
         scheduler.scheduleWithFixedDelay(::tick, 1, 5, TimeUnit.SECONDS)
     }
@@ -246,7 +241,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
     }
     private fun sendBroadcast(authorId: Long, draftId: String) {
         val draft=store.community.claimBroadcastDraft(draftId) ?: return
-        val recipients=store.community.approvedUsers().filter { it !in store.community.adminIds() }
+        val recipients=store.community.broadcastRecipients()
         var sent=0
         recipients.forEach { id -> if(runCatching { BotHelper.sendText(client,id,draft.body,parseMode=null) }.isSuccess) sent++ }
         store.community.finishBroadcastDraft(draftId,sent==recipients.size)
@@ -279,8 +274,8 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val registered = store.community.isRegistered(userId)
         val action = if (registered) "cancel_preregister" else "preregister"
         val label = if (registered) Copy.text("tournament_cancel") else Copy.text("tournament_register")
-        val admin = if (store.community.isAdmin(userId)) "<tg-button type=\"callback_data\" data=\"download_registrations\">${Copy.text("admin_export_tournament", "count" to store.community.registrationCount())}</tg-button>" else ""
-        rich.sync(userId, 0, "<h3>${Copy.text("tournament_title")}</h3><p>${Copy.text("tournament_text", "date" to config.tournamentDate)}</p><p>${config.tournamentPrizes}</p><p>${if (registered) Copy.text("tournament_registered") else Copy.text("tournament_not_registered")}</p><tg-button-row><tg-button type=\"callback_data\" data=\"$action\">$label</tg-button>$admin<tg-button type=\"callback_data\" data=\"menu\">${Copy.text("to_menu")}</tg-button></tg-button-row>")
+        val admin = if (store.community.isAdmin(userId)) "<tg-button-row><tg-button type=\"callback_data\" data=\"download_registrations\">${Copy.text("admin_export_tournament", "count" to store.community.registrationCount())}</tg-button></tg-button-row>" else ""
+        rich.sync(userId, 0, "<h3>${Copy.text("tournament_title")}</h3><p>${Copy.text("tournament_text", "date" to config.tournamentDate)}</p><p>${config.tournamentPrizes}</p><p>${if (registered) Copy.text("tournament_registered") else Copy.text("tournament_not_registered")}</p><tg-button-row><tg-button type=\"callback_data\" data=\"$action\">$label</tg-button></tg-button-row>$admin<tg-button-row><tg-button type=\"callback_data\" data=\"menu\">${Copy.text("to_menu")}</tg-button></tg-button-row>")
     }
     private fun adminPanel(userId: Long) {
         if (!store.community.isAdmin(userId)) { BotHelper.sendText(client, userId, Copy.text("admin_denied")); return }
