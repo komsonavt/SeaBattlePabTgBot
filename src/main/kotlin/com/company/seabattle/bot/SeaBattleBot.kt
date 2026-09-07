@@ -40,7 +40,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
             "play_cpu" to Copy.text("command_play_cpu"), "play_friend" to Copy.text("command_play_friend"),
             "mygames" to Copy.text("command_mygames"), "leaderboard" to Copy.text("command_leaderboard"),
             "tournament" to Copy.text("command_tournament"), "help" to Copy.text("command_help"),
-            "admin" to Copy.text("command_admin"), "delete_me" to Copy.text("command_delete_me")
+            "admin" to Copy.text("command_admin")
         )) }.onFailure { println("Не удалось обновить список команд: ${it.javaClass.simpleName}") }
         store.sessionsToSync().forEach { cards.request(it, true) }
         scheduler.scheduleWithFixedDelay(::tick, 1, 5, TimeUnit.SECONDS)
@@ -115,7 +115,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
             "/surrender", "сдаться" -> askSurrender(user.id)
             "/help" -> help(user.id)
             "/admin" -> adminPanel(user.id)
-            "/delete_me" -> deleteProfilePrompt(user.id)
+            "/delete_me" -> if (store.community.isAdmin(user.id)) deleteProfilePrompt(user.id) else BotHelper.sendText(client, user.id, Copy.text("admin_denied"))
             else -> menu(user.id)
         }
     }
