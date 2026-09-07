@@ -86,7 +86,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
                     "/export_stats" -> statisticsExport(user.id)
                     "/export_tournament" -> registrationExport(user.id)
                     "/export_audit" -> auditExport(user.id)
-                    else -> if (message.messageThreadId == topics?.broadcasts && !message.text.startsWith("/")) broadcast(user.id, message.text)
+                    else -> if (message.messageThreadId == topics?.broadcasts && !message.text.startsWith("/")) draftBroadcast(user.id, message.text)
                 }
             }
             return
@@ -130,7 +130,11 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
             if (store.community.isAdmin(user.id)) when (data) {
                 "mod:stats" -> statisticsExport(user.id)
                 "mod:registrations" -> registrationExport(user.id)
-                else -> if (data.startsWith("mod:")) moderate(user.id, data)
+                else -> when {
+                    data.startsWith("mod:") -> moderate(user.id, data)
+                    data.startsWith("broadcast:send:") -> sendBroadcast(user.id,data.removePrefix("broadcast:send:"))
+                    data.startsWith("broadcast:cancel:") -> cancelBroadcast(data.removePrefix("broadcast:cancel:"))
+                }
             }
             return
         }
@@ -231,10 +235,26 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
             }
         }
     }
-    private fun broadcast(authorId: Long, text: String) {
+    private fun draftBroadcast(authorId: Long, text: String) {
+        val draft=store.community.createBroadcastDraft(authorId,text)
+        val chatId=store.community.workspaceChatId() ?: return
+        val preview=Copy.text("broadcast_preview", "text" to text)
+        val keyboard=BotHelper.keyboard(listOf(listOf(
+            Copy.text("broadcast_send") to "broadcast:send:${draft.id}", Copy.text("broadcast_cancel") to "broadcast:cancel:${draft.id}"
+        )))
+        BotHelper.sendText(client,chatId,preview,parseMode=null,replyMarkup=keyboard,threadId=topics?.broadcasts)
+    }
+    private fun sendBroadcast(authorId: Long, draftId: String) {
+        val draft=store.community.claimBroadcastDraft(draftId) ?: return
         val recipients=store.community.approvedUsers().filter { it !in store.community.adminIds() }
-        recipients.forEach { id -> runCatching { BotHelper.sendText(client,id,text,parseMode=null) } }
-        store.community.workspaceChatId()?.let { BotHelper.sendText(client,it,Copy.text("broadcast_done", "count" to recipients.size),threadId=topics?.broadcasts) }
+        var sent=0
+        recipients.forEach { id -> if(runCatching { BotHelper.sendText(client,id,draft.body,parseMode=null) }.isSuccess) sent++ }
+        store.community.finishBroadcastDraft(draftId,sent==recipients.size)
+        store.community.audit(authorId,"broadcast_sent")
+        store.community.workspaceChatId()?.let { BotHelper.sendText(client,it,Copy.text("broadcast_done", "count" to sent),threadId=topics?.broadcasts) }
+    }
+    private fun cancelBroadcast(draftId: String) {
+        if(store.community.cancelBroadcastDraft(draftId)) store.community.workspaceChatId()?.let { BotHelper.sendText(client,it,Copy.text("broadcast_cancelled"),threadId=topics?.broadcasts) }
     }
 
     private fun menu(userId: Long) {

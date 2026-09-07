@@ -90,6 +90,18 @@ class CommunityStore(private val db: Database) {
             conn.commit()
         } catch(e: Exception) { conn.rollback();throw e }
     }
+    data class BroadcastDraft(val id: String, val authorId: Long, val body: String)
+    fun createBroadcastDraft(authorId: Long, body: String): BroadcastDraft {
+        val id=UUID.randomUUID().toString().replace("-","")
+        db.connection().use { conn -> conn.prepareStatement("INSERT INTO broadcast_drafts(id,author_id,body) VALUES (?,?,?)").use { ps -> ps.setString(1,id);ps.setLong(2,authorId);ps.setString(3,body);ps.executeUpdate() } }
+        return BroadcastDraft(id,authorId,body)
+    }
+    /** Claims a draft once, so simultaneous confirmation buttons cannot send it twice. */
+    fun claimBroadcastDraft(id: String): BroadcastDraft? = db.connection().use { conn -> conn.prepareStatement("UPDATE broadcast_drafts SET status='SENDING' WHERE id=? AND status='DRAFT' RETURNING id,author_id,body").use { ps ->
+        ps.setString(1,id);ps.executeQuery().use { rs -> if(rs.next()) BroadcastDraft(rs.getString(1),rs.getLong(2),rs.getString(3)) else null }
+    } }
+    fun finishBroadcastDraft(id: String, sent: Boolean) = db.connection().use { conn -> conn.prepareStatement("UPDATE broadcast_drafts SET status=? WHERE id=? AND status='SENDING'").use { ps -> ps.setString(1,if(sent) "SENT" else "FAILED");ps.setString(2,id);ps.executeUpdate() } }
+    fun cancelBroadcastDraft(id: String): Boolean = db.connection().use { conn -> conn.prepareStatement("UPDATE broadcast_drafts SET status='CANCELLED' WHERE id=? AND status='DRAFT'").use { ps -> ps.setString(1,id);ps.executeUpdate()==1 } }
     fun approvedUsers(): List<Long> = db.connection().use { conn -> conn.createStatement().use { st -> st.executeQuery("SELECT DISTINCT ON (user_id) user_id,status FROM access_requests ORDER BY user_id,created_at DESC").use { rs -> buildList { while(rs.next()) if(rs.getString(2)=="APPROVED") add(rs.getLong(1)) } } } }
     fun saveProfile(p: PlayerProfile) {
         db.connection().use { conn ->
