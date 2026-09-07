@@ -1,6 +1,7 @@
 package com.company.seabattle.game
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.company.seabattle.copy.Copy
 import java.nio.file.Path
 
 data class BrandEmoji(val id: String? = null, val alt: String) {
@@ -39,7 +40,7 @@ fun escapeHtml(text: String): String = text.replace("&", "&amp;").replace("<", "
 /** Two Rich Message cards. Hidden ships never enter enemy markup. */
 class RichBoardRenderer(private val theme: BoardTheme = BoardTheme.load()) {
     fun own(board: Board): String = buildString {
-        append("<h3>Твоё поле</h3><table compact bordered><tr><th></th>")
+        append("<h3>${Copy.text("own_board")}</h3><table compact bordered><tr><th></th>")
         Coord.COL_LETTERS.forEach { append("<th>$it</th>") }
         append("</tr>")
         for (r in 0 until Board.SIZE) {
@@ -52,7 +53,7 @@ class RichBoardRenderer(private val theme: BoardTheme = BoardTheme.load()) {
     fun enemy(board: Board, gameId: String, revision: Long, half: Int, canFire: Boolean, notice: String,
         finished: Boolean = false, vsComputer: Boolean = false, confirmSurrender: Boolean = false): String = buildString {
         require(half in 0..1)
-        append("<p>${escapeHtml(notice)}</p><h3>⚓ Поле соперника · 10 × 10 · держим курс на победу</h3>")
+        append("<p>${escapeHtml(notice)}</p><h3>${Copy.text("board_anchor")}</h3>")
         for (r in 0 until Board.SIZE) {
             append("<tg-button-row>")
             for (c in half * 5 until half * 5 + 5) {
@@ -79,14 +80,14 @@ class RichBoardRenderer(private val theme: BoardTheme = BoardTheme.load()) {
         append("<tg-button-row>")
         if(!finished) {
             if(confirmSurrender) {
-                append(button("Да, сдаться",GameAction(gameId,revision,"confirm",0).encode()))
-                append(button("Продолжить бой",GameAction(gameId,revision,"cancel",0).encode()))
-            } else append(button("Сдаться",GameAction(gameId,revision,"surrender",0).encode()))
+                append(button(Copy.text("surrender_yes"),GameAction(gameId,revision,"confirm",0).encode()))
+                append(button(Copy.text("fight_on"),GameAction(gameId,revision,"cancel",0).encode()))
+            } else append(button(Copy.text("surrender"),GameAction(gameId,revision,"surrender",0).encode()))
         } else {
-            append(button("Таблица лидеров","leaderboard"))
-            if(vsComputer) append(button("Ещё раз","mode_cpu"))
+            append(button(Copy.text("leaderboard_button"),"leaderboard"))
+            if(vsComputer) append(button(Copy.text("replay"),"mode_cpu"))
         }
-        if (vsComputer || finished) append(button("В меню","menu"))
+        if (vsComputer || finished) append(button(Copy.text("to_menu"),"menu"))
         append("</tg-button-row>")
     }
     private fun button(text: String, data: String) = "<tg-button type=\"callback_data\" data=\"$data\">$text</tg-button>"

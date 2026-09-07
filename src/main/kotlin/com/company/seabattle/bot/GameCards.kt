@@ -1,6 +1,7 @@
 package com.company.seabattle.bot
 
 import com.company.seabattle.game.RichBoardRenderer
+import com.company.seabattle.copy.Copy
 import com.company.seabattle.state.GameSession
 import com.company.seabattle.state.GameStore
 import kotlin.math.max
@@ -57,19 +58,19 @@ class GameCards(private val store: GameStore, private val rich: RichMessageClien
             val own=if(p1) s.board1 else s.board2
             val enemy=if(p1) s.board2 else s.board1
             val status=if(s.finished) {
-                val result=if(s.winnerId==pid) "Ты победил!" else "Ты проиграл."
-                val reason=when(s.rules.finishReason) { "TIMEOUT" -> "Четвёртый пропуск хода."; "SURRENDER" -> "Партия завершена сдачей."; else -> "Все корабли проигравшего потоплены." }
+                val result=if(s.winnerId==pid) Copy.text("result_win") else Copy.text("result_loss")
+                val reason=when(s.rules.finishReason) { "TIMEOUT" -> Copy.text("reason_timeout"); "SURRENDER" -> Copy.text("reason_surrender"); else -> Copy.text("reason_fleet") }
                 "$result $reason"
             } else {
-                val turn=if(s.currentTurnPlayerId==pid) "Твой ход" else "Ход соперника"
-                if(s.vsComputer) "$turn · без ограничения времени" else {
+                val turn=if(s.currentTurnPlayerId==pid) Copy.text("turn_yours") else Copy.text("turn_opponent")
+                if(s.vsComputer) "$turn · ${Copy.text("turn_cpu_no_limit")}" else {
                     val seconds=max(0,(s.turnDeadline-now+999)/1000)
-                    "$turn · осталось %02d:%02d".format(seconds/60,seconds%60)
+                    "$turn · ${Copy.text("turn_remaining", "time" to "%02d:%02d".format(seconds/60,seconds%60))}"
                 }
             }
-            val skips=if(s.vsComputer) "" else "\nПропуски: ты ${if(p1)s.rules.skips1 else s.rules.skips2}/3 · соперник ${if(p1)s.rules.skips2 else s.rules.skips1}/3"
-            return "$status\nСоперник: ${opponent.take(80)}\nТы потопил: ${10-enemy.aliveShipsCount()}/10 · Соперник: ${10-own.aliveShipsCount()}/10$skips\n" +
-                (if(p1)s.rules.notice1 else s.rules.notice2) + if(s.uiFor(pid).confirmingSurrender && !s.finished) "\nСдаться? Сопернику будет засчитана победа." else ""
+            val skips=if(s.vsComputer) "" else "\n${Copy.text("skips", "mine" to if(p1)s.rules.skips1 else s.rules.skips2, "theirs" to if(p1)s.rules.skips2 else s.rules.skips1)}"
+            return "$status\n${Copy.text("opponent", "name" to opponent.take(80))}\n${Copy.text("score", "mine" to 10-enemy.aliveShipsCount(), "theirs" to 10-own.aliveShipsCount())}$skips\n" +
+                (if(p1)s.rules.notice1 else s.rules.notice2) + if(s.uiFor(pid).confirmingSurrender && !s.finished) "\n${Copy.text("surrender_confirm")}" else ""
         }
     }
 }

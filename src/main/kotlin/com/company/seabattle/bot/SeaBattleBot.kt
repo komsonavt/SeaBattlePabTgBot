@@ -1,6 +1,7 @@
 package com.company.seabattle.bot
 
 import com.company.seabattle.config.BotConfig
+import com.company.seabattle.copy.Copy
 import com.company.seabattle.game.Coord
 import com.company.seabattle.game.GameAction
 import com.company.seabattle.game.RichBoardRenderer
@@ -113,10 +114,10 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
                 store.community.forgetJoin(userId)
                 if (session != null) {
                     cards.request(session, true)
-                    BotHelper.sendText(client, userId, "⚓ Игра с коллегой началась. На каждый ход есть 3 минуты.")
-                } else BotHelper.sendText(client, userId, "Приглашение уже недействительно или один из игроков занят.")
+                    BotHelper.sendText(client, userId, Copy.text("invite_started"))
+                } else BotHelper.sendText(client, userId, Copy.text("invite_invalid"))
             } else {
-                BotHelper.sendText(client, userId, "⚓ Добро пожаловать в Морской бой NMH Team!\nЗдесь можно потренироваться, сыграть с коллегой и записаться на турнир.")
+                BotHelper.sendText(client, userId, Copy.text("welcome"))
                 menu(userId)
             }
         } else accessDenied(userId)
@@ -126,13 +127,13 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         accessDenied(userId); return false
     }
     private fun accessDenied(userId: Long) {
-        rich.sync(userId, 0, "<p>К сожалению, у вас нет доступа к игре.</p><p>Если хотите получить доступ, нажмите «В бой!»</p><tg-button-row><tg-button type=\"callback_data\" data=\"request_access\">В бой!</tg-button></tg-button-row>")
+        rich.sync(userId, 0, Copy.text("access_denied"))
     }
     private fun beginAccessRequest(userId: Long) {
         val request = store.community.request(userId, store.community.pendingJoin(userId))
         when (request.status) {
-            com.company.seabattle.state.AccessStatus.DRAFT -> BotHelper.sendText(client, userId, "Как тебя зовут? Напиши имя и фамилию одним сообщением.")
-            com.company.seabattle.state.AccessStatus.PENDING -> BotHelper.sendText(client, userId, "Заявка уже отправлена модераторам. Ответ придёт сюда.")
+            com.company.seabattle.state.AccessStatus.DRAFT -> BotHelper.sendText(client, userId, Copy.text("access_name"))
+            com.company.seabattle.state.AccessStatus.PENDING -> BotHelper.sendText(client, userId, Copy.text("access_waiting"))
             else -> accessDenied(userId)
         }
     }
@@ -141,17 +142,17 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val request = store.community.accessRequest(userId) ?: return false
         if (request.status != com.company.seabattle.state.AccessStatus.DRAFT) return false
         if (request.name.isNullOrBlank()) {
-            if (text.length !in 2..120) { BotHelper.sendText(client,userId,"Напиши, пожалуйста, имя и фамилию (от 2 до 120 символов)."); return true }
+            if (text.length !in 2..120) { BotHelper.sendText(client,userId,Copy.text("access_name_invalid")); return true }
             store.community.setRequestName(userId,text)
-            BotHelper.sendText(client,userId,"Из какого ты актива? Например: «Дизайн», «Маркетинг», «Офис Москва».")
+            BotHelper.sendText(client,userId,Copy.text("access_activity"))
             return true
         }
-        if (text.length !in 2..120) { BotHelper.sendText(client,userId,"Напиши название актива (от 2 до 120 символов)."); return true }
+        if (text.length !in 2..120) { BotHelper.sendText(client,userId,Copy.text("access_activity_invalid")); return true }
         val submitted = store.community.submitRequest(userId,text) ?: return true
-        val body = "Новая заявка на доступ\n\nИмя: ${submitted.name}\nАктив: ${submitted.activity}\nTelegram ID: ${submitted.userId}"
-        val keyboard = BotHelper.keyboard(listOf(listOf("✅ Одобрить" to "mod:approve:${submitted.id}", "⛔ Отклонить" to "mod:decline:${submitted.id}")))
+        val body = Copy.text("moderation_request", "name" to submitted.name, "activity" to submitted.activity, "id" to submitted.userId)
+        val keyboard = BotHelper.keyboard(listOf(listOf(Copy.text("moderation_approve") to "mod:approve:${submitted.id}", Copy.text("moderation_decline") to "mod:decline:${submitted.id}")))
         BotHelper.sendText(client,config.moderationChatId,body,replyMarkup=keyboard,threadId=config.moderationTopicId)
-        BotHelper.sendText(client,userId,"Спасибо! Заявка отправлена модераторам. Ответ придёт сюда.")
+        BotHelper.sendText(client,userId,Copy.text("access_sent"))
         return true
     }
     private fun moderate(moderatorId: Long, data: String) {
@@ -159,22 +160,22 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         if(parts.size!=3) return
         val approved=parts[1]=="approve"
         val request=store.community.decideRequest(parts[2],approved,moderatorId) ?: return
-        BotHelper.sendText(client,request.userId,if(approved) "✅ Доступ одобрен. Добро пожаловать в игру!" else "К сожалению, заявка на доступ отклонена. При необходимости обратитесь к модератору.")
+        BotHelper.sendText(client,request.userId,if(approved) Copy.text("access_approved") else Copy.text("access_declined"))
         if(approved) enter(request.userId,request.payload)
     }
     private fun broadcast(authorId: Long, text: String) {
         val recipients=store.community.approvedUsers().filter { it !in config.adminIds }
         recipients.forEach { id -> runCatching { BotHelper.sendText(client,id,text,parseMode=null) } }
-        BotHelper.sendText(client,config.moderationChatId,"Рассылка отправлена: ${recipients.size} получателей.",threadId=config.broadcastsTopicId)
+        BotHelper.sendText(client,config.moderationChatId,Copy.text("broadcast_done", "count" to recipients.size),threadId=config.broadcastsTopicId)
     }
 
     private fun menu(userId: Long) {
         val rows = mutableListOf(
-            listOf("🤖 Сыграть против компьютера" to "mode_cpu"), listOf("👥 Поиграть с коллегой" to "mode_friend"),
-            listOf("🏅 Таблица лидеров" to "leaderboard"), listOf("🏆 Турнир" to "tournament")
+            listOf(Copy.text("menu_cpu") to "mode_cpu"), listOf(Copy.text("menu_friend") to "mode_friend"),
+            listOf(Copy.text("menu_leaderboard") to "leaderboard"), listOf(Copy.text("menu_tournament") to "tournament")
         )
-        if (store.getSessionByPlayer(userId) != null) rows.add(0, listOf("⚓ Продолжить игру" to "resume"))
-        BotHelper.sendText(client, userId, "*⚓ Морской бой NMH Team*\n\nВыбирай режим — поле и корабли бот расставит сам.", replyMarkup = BotHelper.keyboard(rows))
+        if (store.getSessionByPlayer(userId) != null) rows.add(0, listOf(Copy.text("menu_resume") to "resume"))
+        BotHelper.sendText(client, userId, Copy.text("menu_title"), replyMarkup = BotHelper.keyboard(rows))
     }
     private fun startCpu(userId: Long) {
         if (store.getComputerSession(userId) != null || store.getColleagueSession(userId) != null) { busy(userId); return }
@@ -183,23 +184,23 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
     private fun invite(userId: Long) {
         if (store.getColleagueSession(userId) != null) { busy(userId); return }
         val link = "https://t.me/${config.botUsername}?start=join_${store.createInvite(userId)}"
-        BotHelper.sendText(client, userId, "*👥 Игра с коллегой*\n\nОтправь эту одноразовую ссылку:\n`$link`\n\nНа ход — 3 минуты. Три пропуска допустимы.", replyMarkup = BotHelper.keyboard(listOf(listOf("Отменить приглашение" to "cancel_invite"))))
+        BotHelper.sendText(client, userId, Copy.text("invite", "link" to link), replyMarkup = BotHelper.keyboard(listOf(listOf(Copy.text("invite_cancel") to "cancel_invite"))))
     }
     private fun leaderboard(userId: Long) { rich.sync(userId, 0, CommunityStore.renderLeaderboard(store.community.leaderboard(userId), userId)) }
     private fun preregistration(userId: Long) {
         val registered = store.community.isRegistered(userId)
         val action = if (registered) "cancel_preregister" else "preregister"
-        val label = if (registered) "Отменить запись" else "Предварительно записаться"
+        val label = if (registered) Copy.text("tournament_cancel") else Copy.text("tournament_register")
         val admin = if (userId in config.adminIds) "<tg-button type=\"callback_data\" data=\"download_registrations\">Заявки: ${store.community.registrationCount()}</tg-button>" else ""
-        rich.sync(userId, 0, "<h3>🏆 Турнир NMH Team</h3><p>Предварительный старт — ${config.tournamentDate}. Дату подтвердим отдельно.</p><p>${config.tournamentPrizes}</p><p>${if (registered) "Ты уже в предварительном списке ✅" else "Оставь заявку — мы сохраним имя, username и Telegram ID."}</p><tg-button-row><tg-button type=\"callback_data\" data=\"$action\">$label</tg-button>$admin<tg-button type=\"callback_data\" data=\"menu\">В меню</tg-button></tg-button-row>")
+        rich.sync(userId, 0, "<h3>${Copy.text("tournament_title")}</h3><p>${Copy.text("tournament_text", "date" to config.tournamentDate)}</p><p>${config.tournamentPrizes}</p><p>${if (registered) Copy.text("tournament_registered") else Copy.text("tournament_not_registered")}</p><tg-button-row><tg-button type=\"callback_data\" data=\"$action\">$label</tg-button>$admin<tg-button type=\"callback_data\" data=\"menu\">${Copy.text("to_menu")}</tg-button></tg-button-row>")
     }
     private fun registrationExport(userId: Long) = BotHelper.sendCsv(client, config.moderationChatId, "nmh-tournament-registrations.csv", store.community.registrationsCsv(), "Заявок: ${store.community.registrationCount()}", config.exportsTopicId)
-    private fun resume(userId: Long) { store.getSessionByPlayer(userId)?.let { cards.reopen(it, userId) } ?: BotHelper.sendText(client, userId, "Активной игры нет.") }
+    private fun resume(userId: Long) { store.getSessionByPlayer(userId)?.let { cards.reopen(it, userId) } ?: BotHelper.sendText(client, userId, Copy.text("no_active_game")) }
     private fun busy(userId: Long): Boolean {
         if (store.getSessionByPlayer(userId) == null) return false
-        BotHelper.sendText(client, userId, "Партия уже ждёт тебя. Нажми «⚓ Продолжить игру» — поле появится внизу чата."); return true
+        BotHelper.sendText(client, userId, Copy.text("busy")); return true
     }
-    private fun help(userId: Long) = BotHelper.sendText(client, userId, "Корабли расставляются автоматически. Попадание даёт ещё выстрел. В PvP на ход есть 3 минуты; после трёх пропусков четвёртый означает поражение. У ИИ таймера нет.")
+    private fun help(userId: Long) = BotHelper.sendText(client, userId, Copy.text("help"))
 
     private fun askSurrender(userId: Long) {
         val session = store.getSessionByPlayer(userId) ?: return

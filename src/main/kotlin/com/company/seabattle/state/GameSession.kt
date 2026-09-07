@@ -1,5 +1,7 @@
 package com.company.seabattle.state
 
+import com.company.seabattle.copy.Copy
+
 import com.company.seabattle.game.AiState
 import com.company.seabattle.game.Board
 import com.company.seabattle.game.BoardState
@@ -77,14 +79,14 @@ class GameSession(
         val result = enemy.fire(coord)
         if (result.already) return false
         val ownNotice = when {
-            result.sunk -> "Корабль в ${coord.label()} потоплен — стреляй ещё!"
-            result.hit -> "Попадание в ${coord.label()} — стреляй ещё!"
-            else -> "Промах в ${coord.label()} — ход соперника."
+            result.sunk -> Copy.text("shot_sunk", "cell" to coord.label())
+            result.hit -> Copy.text("shot_hit", "cell" to coord.label())
+            else -> Copy.text("shot_miss", "cell" to coord.label())
         }
         val enemyNotice = when {
-            result.sunk -> "Соперник потопил твой корабль в ${coord.label()}."
-            result.hit -> "Соперник попал в ${coord.label()}."
-            else -> "Соперник промахнулся в ${coord.label()}. Твой ход!"
+            result.sunk -> Copy.text("enemy_sunk", "cell" to coord.label())
+            result.hit -> Copy.text("enemy_hit", "cell" to coord.label())
+            else -> Copy.text("enemy_miss", "cell" to coord.label())
         }
         if (playerId == player1Id) { rules.notice1 = ownNotice; rules.notice2 = enemyNotice }
         else { rules.notice2 = ownNotice; rules.notice1 = enemyNotice }
@@ -109,8 +111,8 @@ class GameSession(
     fun expire(now: Long): Boolean {
         if (vsComputer || finished || turnDeadline <= 0 || now < turnDeadline) return false
         val skips = if (turnIsPlayer1) ++rules.skips1 else ++rules.skips2
-        val notice = if (skips <= 3) "Время вышло: пропуск $skips из 3. Ход передан сопернику."
-            else "Четвёртый пропуск — техническое поражение."
+        val notice = if (skips <= 3) Copy.text("timeout_skip", "count" to skips)
+            else Copy.text("timeout_loss")
         if (turnIsPlayer1) { rules.notice1 = notice; rules.notice2 = "Соперник пропустил ход ($skips)." }
         else { rules.notice2 = notice; rules.notice1 = "Соперник пропустил ход ($skips)." }
         if (skips >= 4) setWinner(if (turnIsPlayer1) player2Id else player1Id, "TIMEOUT", now)
