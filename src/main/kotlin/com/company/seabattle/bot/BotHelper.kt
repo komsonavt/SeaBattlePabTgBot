@@ -11,6 +11,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 import org.telegram.telegrambots.meta.api.objects.message.Message
 import org.telegram.telegrambots.meta.api.objects.InputFile
 import org.telegram.telegrambots.meta.api.methods.send.SendDocument
+import org.telegram.telegrambots.meta.api.methods.send.SendPhoto
 import java.io.ByteArrayInputStream
 
 /**
@@ -61,6 +62,15 @@ object BotHelper {
         request.caption = caption
         if (threadId != null) request.messageThreadId = threadId
         client.execute(request)
+    }
+
+    /** Sends a bundled visual with a caption; callers can fall back to text if Telegram rejects it. */
+    fun sendPhotoResource(client: TelegramClient, chatId: Long, resource: String, caption: String) {
+        val bytes = requireNotNull(BotHelper::class.java.getResourceAsStream(resource)) { "Resource not found: $resource" }.use { it.readBytes() }
+        val photo = SendPhoto(chatId.toString(), InputFile(ByteArrayInputStream(bytes), resource.substringAfterLast('/')))
+        photo.caption = caption
+        photo.parseMode = PARSE_MODE
+        client.execute(photo)
     }
 
     /** Редактировать текст сообщения (и опционально клавиатуру). */

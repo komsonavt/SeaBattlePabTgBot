@@ -117,7 +117,8 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
                     BotHelper.sendText(client, userId, Copy.text("invite_started"))
                 } else BotHelper.sendText(client, userId, Copy.text("invite_invalid"))
             } else {
-                BotHelper.sendText(client, userId, Copy.text("welcome"))
+                runCatching { BotHelper.sendPhotoResource(client, userId, "/welcome.png", Copy.text("welcome")) }
+                    .getOrElse { BotHelper.sendText(client, userId, Copy.text("welcome")) }
                 menu(userId)
             }
         } else accessDenied(userId)
