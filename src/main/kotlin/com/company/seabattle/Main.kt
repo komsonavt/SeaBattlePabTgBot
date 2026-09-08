@@ -15,7 +15,7 @@ import org.telegram.telegrambots.longpolling.TelegramBotsLongPollingApplication
  * Требуемые переменные окружения:
  * - BOT_TOKEN          — токен бота от @BotFather
  * - BOT_USERNAME       — username бота без @
- * - ALLOWED_CHANNEL_ID — единственный приватный канал сотрудников для проверки доступа
+ * - ALLOWED_CHANNEL_IDS — один или несколько приватных каналов сотрудников для проверки доступа
  * - GROUP_SIZE         — размер группы в турнире (опционально, по умолчанию 4)
  * - PLAYERS_PER_GROUP_ADVANCE — сколько проходит в плей-офф (опционально, по умолчанию 2)
  * - DB_URL             — JDBC URL PostgreSQL (опционально, по умолчанию localhost:5432/seabattle)

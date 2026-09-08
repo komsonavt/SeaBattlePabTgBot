@@ -56,17 +56,14 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val change=update.myChatMember
         val chat=change.chat
         if (change.newChatMember.status !in setOf("administrator", "creator", "owner")) return
-        if (chat.isChannelChat == true && chat.id == config.allowedChannelId) {
+        if (chat.isChannelChat == true && chat.id in config.allowedChannelIds) {
             store.community.activateAccessChannel(chat.id)
             println("Разрешённый канал сотрудников подключён: ${chat.id}")
         }
     }
     private fun activateForum(chatId: Long) {
         val existing=store.community.workspaceChatId()
-        if (existing != null && existing != chatId) {
-            println("Игнорируется попытка подключить чужую супергруппу: $chatId")
-            return
-        }
+        if (existing != null && existing != chatId) println("Рабочая супергруппа переключена: $existing → $chatId")
         store.community.activateWorkspace(chatId)
         client.execute(GetChatAdministrators(chatId.toString())).forEach { member ->
             if(member.status in setOf("administrator", "creator", "owner")) store.community.addAdmin(member.user.id, null, "chat_admin")
@@ -86,7 +83,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val message = update.message
         val user = message.from
         if (message.chatId != user.id && message.chat.isForum == true && message.text.trim() == "/setup") {
-            if (store.community.workspaceChatId() == null && isChannelMember(user.id)) activateForum(message.chatId)
+            if (isChannelMember(user.id) && isForumOwner(message.chatId, user.id)) activateForum(message.chatId)
             return
         }
         if (message.chatId == store.community.workspaceChatId()) {
@@ -193,10 +190,13 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         return isChannelMember(userId)
     }
     private fun isChannelMember(userId: Long): Boolean {
-        return runCatching {
-            client.execute(GetChatMember(config.allowedChannelId.toString(),userId)).status in setOf("member", "administrator", "creator", "owner")
-        }.getOrDefault(false)
+        return config.allowedChannelIds.any { channelId -> runCatching {
+            client.execute(GetChatMember(channelId.toString(),userId)).status in setOf("member", "administrator", "creator", "owner")
+        }.getOrDefault(false) }
     }
+    private fun isForumOwner(chatId: Long, userId: Long): Boolean = runCatching {
+        client.execute(GetChatMember(chatId.toString(),userId)).status in setOf("creator", "owner")
+    }.getOrDefault(false)
     private fun accessDenied(userId: Long) {
         val text = if (store.community.accessRequest(userId)?.status == com.company.seabattle.state.AccessStatus.BLOCKED) Copy.text("access_blocked") else Copy.text("access_denied")
         rich.sync(userId, 0, text)
