@@ -16,6 +16,7 @@ import org.telegram.telegrambots.meta.api.objects.Update
 import org.telegram.telegrambots.meta.api.objects.User
 import org.telegram.telegrambots.meta.api.methods.groupadministration.BanChatMember
 import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatAdministrators
+import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatMember
 import org.telegram.telegrambots.meta.generics.TelegramClient
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -54,7 +55,14 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
     private fun onBotAddedToChat(update: Update) {
         val change=update.myChatMember
         val chat=change.chat
-        if (chat.isForum == true && change.newChatMember.status in setOf("administrator", "creator", "owner")) activateForum(chat.id)
+        if (change.newChatMember.status !in setOf("administrator", "creator", "owner")) return
+        when {
+            chat.isForum == true -> activateForum(chat.id)
+            chat.isChannelChat == true -> {
+                store.community.activateAccessChannel(chat.id)
+                println("Канал сотрудников подключён: ${chat.id}")
+            }
+        }
     }
     private fun activateForum(chatId: Long) {
         store.community.activateWorkspace(chatId)
@@ -158,7 +166,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
 
     private fun remember(user: User) = store.community.saveProfile(PlayerProfile(user.id, user.firstName, user.lastName, user.userName))
     private fun enter(userId: Long, payload: String?) {
-        if (store.community.isApproved(userId) || store.community.isAdmin(userId)) {
+        if (hasAccess(userId)) {
             val join = payload ?: store.community.pendingJoin(userId)
             if (join != null) {
                 val session = store.acceptInvite(join.removePrefix("join_"), userId)
@@ -171,8 +179,15 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         } else accessDenied(userId)
     }
     private fun requireAccess(userId: Long): Boolean {
-        if (store.community.isApproved(userId) || store.community.isAdmin(userId)) return true
+        if (hasAccess(userId)) return true
         accessDenied(userId); return false
+    }
+    private fun hasAccess(userId: Long): Boolean {
+        if (store.community.isApproved(userId) || store.community.isAdmin(userId)) return true
+        val channelId=store.community.accessChannelId() ?: return false
+        return runCatching {
+            client.execute(GetChatMember(channelId.toString(),userId)).status in setOf("member", "administrator", "creator", "owner")
+        }.getOrDefault(false)
     }
     private fun accessDenied(userId: Long) {
         val text = if (store.community.accessRequest(userId)?.status == com.company.seabattle.state.AccessStatus.BLOCKED) Copy.text("access_blocked") else Copy.text("access_denied")

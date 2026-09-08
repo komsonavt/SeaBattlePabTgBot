@@ -53,6 +53,8 @@ class CommunityStore(private val db: Database) {
             conn.commit()
         } catch(e: Exception) { conn.rollback();throw e }
     }
+    fun accessChannelId(): Long? = db.connection().use { conn -> conn.prepareStatement("SELECT chat_id FROM access_channel WHERE channel_key='employees'").use { ps -> ps.executeQuery().use { rs -> if(rs.next()) rs.getLong(1) else null } } }
+    fun activateAccessChannel(chatId: Long) = db.connection().use { conn -> conn.prepareStatement("INSERT INTO access_channel(channel_key,chat_id) VALUES ('employees',?) ON CONFLICT(channel_key) DO UPDATE SET chat_id=EXCLUDED.chat_id,activated_at=NOW()").use { ps -> ps.setLong(1,chatId);ps.executeUpdate() } }
     fun bootstrapAdmins(ids: Set<Long>) = ids.forEach { addAdmin(it, null, "config") }
     fun addAdmin(userId: Long, addedBy: Long?, source: String = "invite") = db.connection().use { conn -> conn.prepareStatement("INSERT INTO bot_admins(user_id,added_by,source) VALUES (?,?,?) ON CONFLICT(user_id) DO NOTHING").use { ps ->
         ps.setLong(1,userId); if(addedBy == null) ps.setNull(2,java.sql.Types.BIGINT) else ps.setLong(2,addedBy); ps.setString(3,source); ps.executeUpdate()
