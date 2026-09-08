@@ -41,7 +41,7 @@ class RichBoardTest {
         val html = renderer.enemy(board, id, 1, target.col / 5, true, "Твой ход")
         assertTrue("⚓ Поле соперника · 10 × 10 · держим курс на победу" in html)
         assertFalse("${target.label()} " in html)
-        assertTrue(">💣</tg-button>" in html || ">☠️</tg-button>" in html)
+        assertTrue(">🚢</tg-button>" in html)
     }
 
     @Test fun `only computer game offers a menu exit while active`() {

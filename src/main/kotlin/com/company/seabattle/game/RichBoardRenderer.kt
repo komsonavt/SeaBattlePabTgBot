@@ -15,13 +15,19 @@ data class BrandEmoji(val id: String? = null, val alt: String) {
 }
 
 class BoardTheme(private val roles: Map<String, BrandEmoji>) {
-    fun cell(cell: Cell, enemy: Boolean = false): String = roles.getValue(when (cell) {
-        Cell.WATER -> "sea"
-        Cell.SHIP -> if (enemy) "sea" else "ship"
-        Cell.MISS -> "miss"
-        Cell.HIT -> "hit"
-        Cell.SUNK -> "sunk"
-    }).html()
+    fun cell(cell: Cell, enemy: Boolean = false): String = roles.getValue(
+        if (enemy) when (cell) {
+            Cell.WATER, Cell.SHIP -> "sea"
+            Cell.MISS -> "miss"
+            Cell.HIT, Cell.SUNK -> "ship"
+        } else when (cell) {
+            Cell.WATER -> "sea"
+            Cell.SHIP -> "ship"
+            Cell.MISS -> "miss"
+            Cell.HIT -> "hit"
+            Cell.SUNK -> "sunk"
+        }
+    ).html()
     companion object {
         private val defaults = mapOf("sea" to "🌊", "ship" to "🚢", "miss" to "💥", "hit" to "💣", "sunk" to "☠️")
         fun load(path: String? = System.getenv("EMOJI_FILE") ?: System.getenv("BRAND_EMOJI_FILE")): BoardTheme {

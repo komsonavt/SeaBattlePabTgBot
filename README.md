@@ -136,7 +136,7 @@ TOURNAMENT_BRACKET_ENABLED=false
 ### Тексты и эмодзи
 
 - [seaBattleBot_text_for_editor.md](seaBattleBot_text_for_editor.md) — все пользовательские тексты. Бот читает Markdown напрямую; после сохранения файла новые сообщения используют обновлённые значения без пересборки.
-- [emoji.xml](emoji.xml) — внешний набор эмодзи с ключами `sea`, `ship`, `miss`, `hit`, `sunk`. Оставьте обычные emoji в `alt`, а после получения рисунков укажите их Telegram `custom_emoji_id` в `id`.
+- [emoji.xml](emoji.xml) — внешний набор эмодзи с ключами `sea`, `ship`, `miss`, `hit`, `sunk`. В нём уже настроены тестовые custom emoji NMH; перед продакшеном достаточно заменить значения `id` на новые Telegram `custom_emoji_id`.
 
 Ключи `## ...` и конструкции вроде `{name}` в текстовом Markdown менять нельзя: их использует код.
 

@@ -167,11 +167,7 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
                     cards.request(session, true)
                     BotHelper.sendText(client, userId, Copy.text("invite_started"))
                 } else BotHelper.sendText(client, userId, Copy.text("invite_invalid"))
-            } else {
-                runCatching { BotHelper.sendPhotoResource(client, userId, "/welcome.png", Copy.text("welcome")) }
-                    .getOrElse { BotHelper.sendText(client, userId, Copy.text("welcome")) }
-                menu(userId)
-            }
+            } else menu(userId, withImage = true)
         } else accessDenied(userId)
     }
     private fun requireAccess(userId: Long): Boolean {
@@ -258,13 +254,16 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         if(store.community.cancelBroadcastDraft(draftId)) store.community.workspaceChatId()?.let { BotHelper.sendText(client,it,Copy.text("broadcast_cancelled"),threadId=topics?.broadcasts) }
     }
 
-    private fun menu(userId: Long) {
-        val rows = mutableListOf(
-            listOf(Copy.text("menu_cpu") to "mode_cpu"), listOf(Copy.text("menu_friend") to "mode_friend"),
-            listOf(Copy.text("menu_leaderboard") to "leaderboard"), listOf(Copy.text("menu_tournament") to "tournament")
-        )
-        if (store.getSessionByPlayer(userId) != null) rows.add(0, listOf(Copy.text("menu_resume") to "resume"))
-        BotHelper.sendText(client, userId, Copy.text("menu_title"), replyMarkup = BotHelper.keyboard(rows))
+    private fun menu(userId: Long, withImage: Boolean = false) {
+        if (withImage) runCatching { BotHelper.sendPhotoResource(client, userId, "/welcome.png", Copy.text("menu_image_caption")) }
+        val buttons = buildString {
+            if (store.getSessionByPlayer(userId) != null) append("<tg-button-row><tg-button type=\"callback_data\" data=\"resume\">${Copy.text("menu_resume")}</tg-button></tg-button-row>")
+            append("<tg-button-row><tg-button type=\"callback_data\" data=\"mode_cpu\">${Copy.text("menu_cpu")}</tg-button></tg-button-row>")
+            append("<tg-button-row><tg-button type=\"callback_data\" data=\"mode_friend\">${Copy.text("menu_friend")}</tg-button></tg-button-row>")
+            append("<tg-button-row><tg-button type=\"callback_data\" data=\"leaderboard\">${Copy.text("menu_leaderboard")}</tg-button></tg-button-row>")
+            append("<tg-button-row><tg-button type=\"callback_data\" data=\"tournament\">${Copy.text("menu_tournament")}</tg-button></tg-button-row>")
+        }
+        rich.sync(userId, 0, "<h3>${Copy.text("menu_rich_title")}</h3><p>${Copy.text("menu_rich_subtitle")}</p>$buttons")
     }
     private fun startCpu(userId: Long) {
         if (store.getComputerSession(userId) != null || store.getColleagueSession(userId) != null) { busy(userId); return }

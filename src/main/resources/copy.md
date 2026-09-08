@@ -18,6 +18,18 @@
 
 Куда держим курс?
 
+## menu_rich_title
+
+⚓ Морской бой NMH
+
+## menu_rich_subtitle
+
+Куда держим курс?
+
+## menu_image_caption
+
+⚓ Морской бой NMH
+
 ## menu_cpu
 
 🤖 Сыграть с компьютером
