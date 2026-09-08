@@ -10,8 +10,7 @@ import java.util.Properties
  * Переменные:
  * - BOT_TOKEN          — токен бота от @BotFather
  * - BOT_USERNAME       — username бота без @
- * - MODERATION_CHAT_ID — id супергруппы-форума, где бот создаёт рабочие темы
- * - ADMIN_IDS          — список id администраторов через запятую (опционально)
+ * - ALLOWED_CHANNEL_ID — единственный приватный канал сотрудников для проверки доступа
  * - GROUP_SIZE         — размер группы в турнире (по умолчанию 4)
  * - PLAYERS_PER_GROUP_ADVANCE — сколько игроков из группы проходит в плей-офф (по умолчанию 2)
  * - DB_URL             — JDBC URL PostgreSQL (jdbc:postgresql://host:port/dbname)
@@ -22,6 +21,7 @@ import java.util.Properties
 data class BotConfig(
     val botToken: String,
     val botUsername: String,
+    val allowedChannelId: Long,
     val moderationChatId: Long?,
     val moderationTopicId: Int?,
     val exportsTopicId: Int?,
@@ -57,6 +57,8 @@ data class BotConfig(
         fun fromEnv(): BotConfig {
             val token = env("BOT_TOKEN")
             val username = env("BOT_USERNAME")
+            val allowedChannelId = env("ALLOWED_CHANNEL_ID").toLongOrNull()
+                ?: error("ALLOWED_CHANNEL_ID должен быть полным числовым ID разрешённого канала, например -1001234567890")
             val moderationChatId = envOrNull("MODERATION_CHAT_ID")?.toLongOrNull()
             fun topic(name: String) = envOrNull(name)?.toIntOrNull()
             val admins = envOrNull("ADMIN_IDS")
@@ -73,7 +75,7 @@ data class BotConfig(
             val dbPassword = envOrNull("DB_PASSWORD") ?: "seabattle"
             val turnTimeout = 180L
             return BotConfig(
-                token, username, moderationChatId, topic("MODERATION_TOPIC_ID"), topic("EXPORTS_TOPIC_ID"), topic("BROADCASTS_TOPIC_ID"), admins, groupSize, advance,
+                token, username, allowedChannelId, moderationChatId, topic("MODERATION_TOPIC_ID"), topic("EXPORTS_TOPIC_ID"), topic("BROADCASTS_TOPIC_ID"), admins, groupSize, advance,
                 dbUrl, dbUser, dbPassword, turnTimeout,
                 envOrNull("TOURNAMENT_DATE") ?: "20 сентября",
                 envOrNull("TOURNAMENT_PRIZES") ?: "Победителя и призёров ждут призы.",

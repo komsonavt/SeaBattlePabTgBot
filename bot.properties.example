@@ -7,6 +7,10 @@ BOT_TOKEN=
 # Username бота без @
 BOT_USERNAME=
 
+# Единственный приватный канал сотрудников, где бот проверяет подписку.
+# Полный Bot API ID уже начинается с -100. Без него бот не запустится.
+ALLOWED_CHANNEL_ID=
+
 
 # При запуске через Docker Compose эти значения переопределяются настройками сервиса db.
 DB_URL=jdbc:postgresql://localhost:5432/seabattle

@@ -56,15 +56,17 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
         val change=update.myChatMember
         val chat=change.chat
         if (change.newChatMember.status !in setOf("administrator", "creator", "owner")) return
-        when {
-            chat.isForum == true -> activateForum(chat.id)
-            chat.isChannelChat == true -> {
-                store.community.activateAccessChannel(chat.id)
-                println("Канал сотрудников подключён: ${chat.id}")
-            }
+        if (chat.isChannelChat == true && chat.id == config.allowedChannelId) {
+            store.community.activateAccessChannel(chat.id)
+            println("Разрешённый канал сотрудников подключён: ${chat.id}")
         }
     }
     private fun activateForum(chatId: Long) {
+        val existing=store.community.workspaceChatId()
+        if (existing != null && existing != chatId) {
+            println("Игнорируется попытка подключить чужую супергруппу: $chatId")
+            return
+        }
         store.community.activateWorkspace(chatId)
         client.execute(GetChatAdministrators(chatId.toString())).forEach { member ->
             if(member.status in setOf("administrator", "creator", "owner")) store.community.addAdmin(member.user.id, null, "chat_admin")
@@ -83,6 +85,10 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
     private fun onMessage(update: Update) {
         val message = update.message
         val user = message.from
+        if (message.chatId != user.id && message.chat.isForum == true && message.text.trim() == "/setup") {
+            if (store.community.workspaceChatId() == null && isChannelMember(user.id)) activateForum(message.chatId)
+            return
+        }
         if (message.chatId == store.community.workspaceChatId()) {
             if (store.community.isAdmin(user.id)) {
                 when (message.text.trim().lowercase()) {
@@ -184,9 +190,11 @@ class SeaBattleBot(private val config: BotConfig, private val store: GameStore) 
     }
     private fun hasAccess(userId: Long): Boolean {
         if (store.community.isApproved(userId) || store.community.isAdmin(userId)) return true
-        val channelId=store.community.accessChannelId() ?: return false
+        return isChannelMember(userId)
+    }
+    private fun isChannelMember(userId: Long): Boolean {
         return runCatching {
-            client.execute(GetChatMember(channelId.toString(),userId)).status in setOf("member", "administrator", "creator", "owner")
+            client.execute(GetChatMember(config.allowedChannelId.toString(),userId)).status in setOf("member", "administrator", "creator", "owner")
         }.getOrDefault(false)
     }
     private fun accessDenied(userId: Long) {
