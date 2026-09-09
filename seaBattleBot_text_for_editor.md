@@ -175,6 +175,10 @@ Telegram ID: {id}
 
   ⚓ Твоя карта боя · 10 × 10
 
+## opponent_board
+
+  ⚓ Карта соперника · 10 × 10
+
 ## surrender
 
 Сдаться

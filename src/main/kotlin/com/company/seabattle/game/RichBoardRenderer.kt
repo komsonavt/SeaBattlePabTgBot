@@ -54,16 +54,21 @@ class BoardTheme(private val roles: Map<String, BrandEmoji>) {
 fun escapeHtml(text: String): String = text.replace("&", "&amp;").replace("<", "&lt;")
     .replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")
 
-/** Two Rich Message cards. Hidden ships never enter enemy markup. */
+/** Three Rich Message cards: own fleet, enemy map and the controls. */
 class RichBoardRenderer(private val theme: BoardTheme = BoardTheme.load()) {
     /** A separate, read-only card for the player's fleet. */
-    fun own(board: Board): String = buildString {
-        append("<h3>${Copy.text("own_board")}</h3><table compact bordered><tr><th></th>")
+    fun own(board: Board): String = map(board, "own_board", false)
+
+    /** A read-only reconnaissance map; unhit enemy ships remain sea. */
+    fun opponent(board: Board): String = map(board, "opponent_board", true)
+
+    private fun map(board: Board, titleKey: String, hideShips: Boolean): String = buildString {
+        append("<h3>${Copy.text(titleKey)}</h3><table compact bordered><tr><th></th>")
         Coord.COL_LETTERS.forEach { append("<th>$it</th>") }
         append("</tr>")
         for (r in 0 until Board.SIZE) {
             append("<tr><th>${r + 1}</th>")
-            for (c in 0 until Board.SIZE) append("<td>${theme.cell(board.cellAt(r, c))}</td>")
+            for (c in 0 until Board.SIZE) append("<td>${theme.cell(board.cellAt(r, c), hideShips)}</td>")
             append("</tr>")
         }
         append("</table>")

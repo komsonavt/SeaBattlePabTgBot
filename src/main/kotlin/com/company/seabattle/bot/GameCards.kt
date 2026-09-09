@@ -4,6 +4,7 @@ import com.company.seabattle.game.RichBoardRenderer
 import com.company.seabattle.copy.Copy
 import com.company.seabattle.state.GameSession
 import com.company.seabattle.state.GameStore
+import com.company.seabattle.state.GameCardSlot
 import kotlin.math.max
 
 class GameCards(private val store: GameStore, private val rich: RichMessageClient,
@@ -12,15 +13,14 @@ class GameCards(private val store: GameStore, private val rich: RichMessageClien
     // Only accessed by the single sender for that game.
     private val sent = java.util.concurrent.ConcurrentHashMap<String, String>()
     /**
-     * One game screen is always a pair: the player's fleet and the enemy map.
-     * Keeping both cards in one snapshot prevents a shot from refreshing only
-     * the keyboard card while leaving the fleet card stale.
+     * One game screen is always three cards: fleet, reconnaissance map and
+     * controls. They are rendered from one snapshot and updated together.
      */
-    private data class Card(val playerId: Long, val own: Boolean, val messageId: Long, val html: String)
+    private data class Card(val playerId: Long, val slot: GameCardSlot, val messageId: Long, val html: String)
     fun request(session: GameSession, force: Boolean = false) {
         queue.submit(session.id) { sync(session,force) }
     }
-    /** Sends a fresh pair to the bottom of one player's chat instead of editing old cards. */
+    /** Sends a fresh three-card screen to the bottom of one player's chat. */
     fun reopen(session: GameSession, playerId: Long) {
         queue.submit(session.id) {
             store.clearCardIds(session, playerId)
@@ -28,16 +28,28 @@ class GameCards(private val store: GameStore, private val rich: RichMessageClien
         }
     }
     private fun sync(session: GameSession, force: Boolean, onlyPlayerId: Long? = null) {
+        // Existing games created before the reconnaissance card have two message
+        // IDs. Editing those in place would put the newly sent map below the
+        // controls, so reopen the complete three-card screen once instead.
+        val playersToRepair = synchronized(store) {
+            listOf(session.player1Id, session.player2Id).filter { playerId ->
+                playerId != 0L && (onlyPlayerId == null || playerId == onlyPlayerId)
+            }.filter { playerId ->
+                val view = session.uiFor(playerId)
+                view.opponentMapMessageId == 0L && (view.ownMessageId != 0L || view.enemyMessageId != 0L)
+            }
+        }
+        playersToRepair.forEach { store.clearCardIds(session, it) }
         val snapshot = synchronized(store) {
             val cards = listOf(session.player1Id,session.player2Id).filter { it!=0L && (onlyPlayerId == null || it == onlyPlayerId) }.flatMap { pid ->
                 val p1=pid==session.player1Id
                 val view=session.uiFor(pid)
                 val own=if(p1) session.board1 else session.board2
                 val enemy=if(p1) session.board2 else session.board1
-                // The own card is intentionally first: then the actionable enemy
-                // card stays directly below it in the chat.
-                listOf(Card(pid,true,view.ownMessageId,renderer.own(own)),
-                    Card(pid,false,view.enemyMessageId,renderer.enemy(enemy,session.id,view.revision,view.half,
+                // Keep the action buttons below both maps in every game mode.
+                listOf(Card(pid,GameCardSlot.OWN,view.ownMessageId,renderer.own(own)),
+                    Card(pid,GameCardSlot.OPPONENT_MAP,view.opponentMapMessageId,renderer.opponent(enemy)),
+                    Card(pid,GameCardSlot.CONTROLS,view.enemyMessageId,renderer.enemy(enemy,session.id,view.revision,view.half,
                         !session.finished && session.currentTurnPlayerId==pid,
                         notice(session,pid,store.community.name(if(p1) session.player2Id else session.player1Id),System.currentTimeMillis()),
                         session.finished,session.vsComputer,view.confirmingSurrender)))
@@ -46,17 +58,17 @@ class GameCards(private val store: GameStore, private val rich: RichMessageClien
         }
         var failed=false
         for(card in snapshot.first) {
-            val key="${session.id}:${card.playerId}:${card.own}"
+            val key="${session.id}:${card.playerId}:${card.slot}"
             if(!force && card.messageId>0 && sent[key]==card.html) continue
             try {
                 val id=rich.sync(card.playerId,card.messageId,card.html)
-                store.saveCardId(session,card.playerId,card.own,id)
+                store.saveCardId(session,card.playerId,card.slot,id)
                 sent[key]=card.html
             } catch (_: Exception) { failed=true }
         }
         if(failed) error("Card update failed")
         store.markSyncedIfCurrent(session,snapshot.second,snapshot.third)
-        if(session.finished) snapshot.first.forEach { sent.remove("${session.id}:${it.playerId}:${it.own}") }
+        if(session.finished) snapshot.first.forEach { sent.remove("${session.id}:${it.playerId}:${it.slot}") }
     }
     override fun close() { queue.close() }
     companion object {

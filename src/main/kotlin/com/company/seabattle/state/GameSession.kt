@@ -196,8 +196,11 @@ data class GameRules(var skips1: Int = 0, var skips2: Int = 0, var notice1: Stri
     var notice2: String = "Соперник ходит первым.", var finishReason: String? = null, var finishedAt: Long? = null)
 
 data class PlayerUi(var ownMessageId: Long = 0, var enemyMessageId: Long = 0, var half: Int = 0, var revision: Long = 0,
-    var confirmingSurrender: Boolean = false)
+    var confirmingSurrender: Boolean = false, var opponentMapMessageId: Long = 0)
 data class GameUi(var player1: PlayerUi = PlayerUi(), var player2: PlayerUi = PlayerUi(), var needsSync: Boolean = true)
+
+/** Persistent Rich-message slots for one player's game screen. */
+enum class GameCardSlot { OWN, OPPONENT_MAP, CONTROLS }
 
 /** Режим игры. */
 enum class GameMode {

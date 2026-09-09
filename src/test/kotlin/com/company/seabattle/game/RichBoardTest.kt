@@ -60,6 +60,20 @@ class RichBoardTest {
         assertTrue("⚓ Твоя карта боя · 10 × 10" in defenderOwnAfter)
     }
 
+    @Test fun `opponent map mirrors the own map without exposing untouched ships`() {
+        val renderer = RichBoardRenderer(BoardTheme.load(null))
+        val board = Board.random()
+        val target = board.ships().first().cells.first()
+        val hidden = renderer.opponent(board)
+        assertTrue("⚓ Карта соперника · 10 × 10" in hidden)
+        assertFalse("🚢" in hidden)
+
+        board.fire(target)
+        val afterHit = renderer.opponent(board)
+        assertNotEquals(hidden, afterHit)
+        assertTrue(">🚢</td>" in afterHit)
+    }
+
     @Test fun `only computer game offers a menu exit while active`() {
         val renderer = RichBoardRenderer(BoardTheme.load(null))
         val pvp = renderer.enemy(Board.random(), id, 1, 0, true, "Твой ход", vsComputer = false)

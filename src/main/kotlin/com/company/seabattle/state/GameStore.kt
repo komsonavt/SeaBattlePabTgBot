@@ -439,12 +439,12 @@ class GameStore(private val db: Database) {
     }
 
     /** UI-only write: an HTTP response must never overwrite boards or the turn. Caller holds this store's monitor. */
-    @Synchronized fun saveCardId(session: GameSession, playerId: Long, own: Boolean, messageId: Long) {
+    @Synchronized fun saveCardId(session: GameSession, playerId: Long, slot: GameCardSlot, messageId: Long) {
         val view = session.uiFor(playerId)
-        val previous = if(own) view.ownMessageId else view.enemyMessageId
-        if(own) view.ownMessageId=messageId else view.enemyMessageId=messageId
+        val previous = view.cardId(slot)
+        view.setCardId(slot, messageId)
         try { saveUi(session) } catch(e: Exception) {
-            if(own) view.ownMessageId=previous else view.enemyMessageId=previous
+            view.setCardId(slot, previous)
             throw e
         }
     }
@@ -452,11 +452,14 @@ class GameStore(private val db: Database) {
     @Synchronized fun clearCardIds(session: GameSession, playerId: Long) {
         val view = session.uiFor(playerId)
         val own = view.ownMessageId
+        val opponentMap = view.opponentMapMessageId
         val enemy = view.enemyMessageId
         view.ownMessageId = 0
+        view.opponentMapMessageId = 0
         view.enemyMessageId = 0
         try { saveUi(session) } catch (e: Exception) {
             view.ownMessageId = own
+            view.opponentMapMessageId = opponentMap
             view.enemyMessageId = enemy
             throw e
         }
@@ -472,4 +475,16 @@ class GameStore(private val db: Database) {
             ps.setString(1,mapper.writeValueAsString(session.ui)); ps.setString(2,session.id); ps.executeUpdate()
         } }
     }
+}
+
+private fun PlayerUi.cardId(slot: GameCardSlot): Long = when (slot) {
+    GameCardSlot.OWN -> ownMessageId
+    GameCardSlot.OPPONENT_MAP -> opponentMapMessageId
+    GameCardSlot.CONTROLS -> enemyMessageId
+}
+
+private fun PlayerUi.setCardId(slot: GameCardSlot, value: Long) = when (slot) {
+    GameCardSlot.OWN -> ownMessageId = value
+    GameCardSlot.OPPONENT_MAP -> opponentMapMessageId = value
+    GameCardSlot.CONTROLS -> enemyMessageId = value
 }
