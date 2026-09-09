@@ -36,7 +36,7 @@ class RichBoardTest {
     @Test fun `enemy board uses emoji only and has a fixed width anchor`() {
         val renderer = RichBoardRenderer(BoardTheme.load(null))
         val board = Board.random()
-        val target = board.ships().first().cells.first()
+        val target = board.ships().first { it.size > 1 }.cells.first()
         board.fire(target)
         val html = renderer.enemy(board, id, 1, target.col / 5, true, "Твой ход")
         assertTrue("⚓ Поле соперника · 10 × 10 · держим курс на победу" in html)
@@ -63,7 +63,7 @@ class RichBoardTest {
     @Test fun `opponent map mirrors the own map without exposing untouched ships`() {
         val renderer = RichBoardRenderer(BoardTheme.load(null))
         val board = Board.random()
-        val target = board.ships().first().cells.first()
+        val target = board.ships().first { it.size == 1 }.cells.first()
         val hidden = renderer.opponent(board)
         assertTrue("⚓ Карта соперника · 10 × 10" in hidden)
         assertFalse("🚢" in hidden)
@@ -71,7 +71,7 @@ class RichBoardTest {
         board.fire(target)
         val afterHit = renderer.opponent(board)
         assertNotEquals(hidden, afterHit)
-        assertTrue(">🚢</td>" in afterHit)
+        assertTrue(">☠️</td>" in afterHit)
     }
 
     @Test fun `only computer game offers a menu exit while active`() {

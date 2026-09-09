@@ -19,7 +19,9 @@ class BoardTheme(private val roles: Map<String, BrandEmoji>) {
         if (enemy) when (cell) {
             Cell.WATER, Cell.SHIP -> "sea"
             Cell.MISS -> "miss"
-            Cell.HIT, Cell.SUNK -> "ship"
+            Cell.HIT -> "ship"
+            // A hit ship stays a ship. A fully sunk one gets its own marker.
+            Cell.SUNK -> "sunk"
         } else when (cell) {
             Cell.WATER -> "sea"
             Cell.SHIP -> "ship"
