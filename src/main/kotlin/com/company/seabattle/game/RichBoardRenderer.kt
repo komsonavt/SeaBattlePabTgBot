@@ -56,6 +56,7 @@ fun escapeHtml(text: String): String = text.replace("&", "&amp;").replace("<", "
 
 /** Two Rich Message cards. Hidden ships never enter enemy markup. */
 class RichBoardRenderer(private val theme: BoardTheme = BoardTheme.load()) {
+    /** A separate, read-only card for the player's fleet. */
     fun own(board: Board): String = buildString {
         append("<h3>${Copy.text("own_board")}</h3><table compact bordered><tr><th></th>")
         Coord.COL_LETTERS.forEach { append("<th>$it</th>") }

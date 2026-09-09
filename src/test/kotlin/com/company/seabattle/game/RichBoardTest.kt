@@ -44,6 +44,22 @@ class RichBoardTest {
         assertTrue(">🚢</tg-button>" in html)
     }
 
+    @Test fun `a shot refreshes the shooter enemy map and defender own map`() {
+        val renderer = RichBoardRenderer(BoardTheme.load(null))
+        val game = session()
+        val target = game.board2.ships().first().cells.first()
+        val shooterEnemyBefore = renderer.enemy(game.board2, id, 0, 0, false, "До выстрела")
+        val defenderOwnBefore = renderer.own(game.board2)
+
+        assertTrue(game.fire(1, target))
+
+        val shooterEnemyAfter = renderer.enemy(game.board2, id, 1, 0, false, "Попадание")
+        val defenderOwnAfter = renderer.own(game.board2)
+        assertNotEquals(shooterEnemyBefore, shooterEnemyAfter)
+        assertNotEquals(defenderOwnBefore, defenderOwnAfter)
+        assertTrue("⚓ Твоя карта боя · 10 × 10" in defenderOwnAfter)
+    }
+
     @Test fun `only computer game offers a menu exit while active`() {
         val renderer = RichBoardRenderer(BoardTheme.load(null))
         val pvp = renderer.enemy(Board.random(), id, 1, 0, true, "Твой ход", vsComputer = false)

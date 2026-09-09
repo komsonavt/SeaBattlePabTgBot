@@ -11,6 +11,11 @@ class GameCards(private val store: GameStore, private val rich: RichMessageClien
     private val queue = LatestTaskQueue()
     // Only accessed by the single sender for that game.
     private val sent = java.util.concurrent.ConcurrentHashMap<String, String>()
+    /**
+     * One game screen is always a pair: the player's fleet and the enemy map.
+     * Keeping both cards in one snapshot prevents a shot from refreshing only
+     * the keyboard card while leaving the fleet card stale.
+     */
     private data class Card(val playerId: Long, val own: Boolean, val messageId: Long, val html: String)
     fun request(session: GameSession, force: Boolean = false) {
         queue.submit(session.id) { sync(session,force) }
@@ -29,6 +34,8 @@ class GameCards(private val store: GameStore, private val rich: RichMessageClien
                 val view=session.uiFor(pid)
                 val own=if(p1) session.board1 else session.board2
                 val enemy=if(p1) session.board2 else session.board1
+                // The own card is intentionally first: then the actionable enemy
+                // card stays directly below it in the chat.
                 listOf(Card(pid,true,view.ownMessageId,renderer.own(own)),
                     Card(pid,false,view.enemyMessageId,renderer.enemy(enemy,session.id,view.revision,view.half,
                         !session.finished && session.currentTurnPlayerId==pid,

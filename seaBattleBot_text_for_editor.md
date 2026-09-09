@@ -173,7 +173,7 @@ Telegram ID: {id}
 
 ## own_board
 
-Твоё поле
+  ⚓ Твоя карта боя · 10 × 10
 
 ## surrender
 
