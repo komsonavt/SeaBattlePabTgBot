@@ -141,6 +141,12 @@ class Board private constructor(
         ship.cells.any { grid[it.row][it.col] != Cell.SUNK }
     }
 
+    /** Number of completely sunk ships grouped by their deck count. */
+    fun sunkShipsBySize(): Map<Int, Int> = ships
+        .filter { ship -> ship.cells.all { grid[it.row][it.col] == Cell.SUNK } }
+        .groupingBy { it.size }
+        .eachCount()
+
     /** Экспортировать состояние поля для сериализации в БД. */
     fun exportState(): BoardState = BoardState(
         grid = grid.map { row -> row.map { it.name }.toTypedArray() }.toTypedArray(),

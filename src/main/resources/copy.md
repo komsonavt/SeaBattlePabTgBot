@@ -163,6 +163,47 @@ Telegram ID: {id}
 
 Ты потопил: {mine}/10 · Соперник: {theirs}/10
 
+## score_detailed
+
+Ты потопил: {mine}/10 — {mine_fleet}
+Соперник потопил: {theirs}/10 — {theirs_fleet}
+
+## fleet_none
+
+пока нет потопленных кораблей
+
+## fleet_item
+
+{count} {deck} {ship}
+
+## fleet_deck_1
+
+однопалубный
+
+## fleet_deck_2
+
+двухпалубный
+
+## fleet_deck_3
+
+трёхпалубный
+
+## fleet_deck_4
+
+четырёхпалубный
+
+## fleet_ship_one
+
+корабль
+
+## fleet_ship_few
+
+корабля
+
+## fleet_ship_many
+
+кораблей
+
 ## skips
 
 Пропуски: ты {mine}/3 · соперник {theirs}/3

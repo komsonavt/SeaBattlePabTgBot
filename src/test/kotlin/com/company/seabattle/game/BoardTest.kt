@@ -186,4 +186,12 @@ class BoardTest {
         val board = Board.random()
         assertEquals(10, board.aliveShipsCount(), "Новое поле должно иметь 10 живых кораблей")
     }
+
+    @Test
+    fun `sunk ships are grouped by deck count`() {
+        val board = Board.random()
+        val twoDeckShip = board.ships().first { it.size == 2 }
+        twoDeckShip.cells.forEach { board.fire(it) }
+        assertEquals(mapOf(2 to 1), board.sunkShipsBySize())
+    }
 }

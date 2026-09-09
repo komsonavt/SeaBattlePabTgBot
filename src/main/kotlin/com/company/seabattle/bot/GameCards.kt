@@ -1,6 +1,7 @@
 package com.company.seabattle.bot
 
 import com.company.seabattle.game.RichBoardRenderer
+import com.company.seabattle.game.Board
 import com.company.seabattle.copy.Copy
 import com.company.seabattle.state.GameSession
 import com.company.seabattle.state.GameStore
@@ -88,8 +89,24 @@ class GameCards(private val store: GameStore, private val rich: RichMessageClien
                 }
             }
             val skips=if(s.vsComputer) "" else "\n${Copy.text("skips", "mine" to if(p1)s.rules.skips1 else s.rules.skips2, "theirs" to if(p1)s.rules.skips2 else s.rules.skips1)}"
-            return "$status\n${Copy.text("opponent", "name" to opponent.take(80))}\n${Copy.text("score", "mine" to 10-enemy.aliveShipsCount(), "theirs" to 10-own.aliveShipsCount())}$skips\n" +
+            return "$status\n${Copy.text("opponent", "name" to opponent.take(80))}\n${Copy.text("score_detailed", "mine" to 10-enemy.aliveShipsCount(), "mine_fleet" to fleet(enemy), "theirs" to 10-own.aliveShipsCount(), "theirs_fleet" to fleet(own))}$skips\n" +
                 (if(p1)s.rules.notice1 else s.rules.notice2) + if(s.uiFor(pid).confirmingSurrender && !s.finished) "\n${Copy.text("surrender_confirm")}" else ""
         }
+
+        private fun fleet(board: Board): String = board.sunkShipsBySize()
+            .toSortedMap(compareByDescending { it })
+            .map { (decks, count) ->
+                Copy.text("fleet_item", "count" to count, "deck" to Copy.text("fleet_deck_$decks"), "ship" to shipWord(count))
+            }
+            .joinToString(" · ")
+            .ifBlank { Copy.text("fleet_none") }
+
+        private fun shipWord(count: Int): String = Copy.text(
+            when {
+                count % 10 == 1 && count % 100 != 11 -> "fleet_ship_one"
+                count % 10 in 2..4 && count % 100 !in 12..14 -> "fleet_ship_few"
+                else -> "fleet_ship_many"
+            }
+        )
     }
 }
